@@ -136,7 +136,12 @@ func cmdServe(args []string) int {
 		*name, ver, s.MsgAddr(), s.ClipAddr())
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-	<-sig
+	stop := make(chan struct{})
+	go func() {
+		<-sig
+		close(stop)
+	}()
+	runStack(s, cfg, *name, *key, log, stop)
 	fmt.Println("stopped")
 	return 0
 }

@@ -22,6 +22,7 @@ type Server struct {
 	msgPort  int
 	clipPort int
 	key      string
+	magic    uint32
 	version  protocol.ProtocolVersion
 	self     string
 
@@ -45,10 +46,12 @@ type Server struct {
 }
 
 // legEntry is one peer leg; outbound marks legs we dialed (mesh parity:
-// UpdateTCPClients dials every matrix machine we lack a client leg to).
+// UpdateTCPClients dials every matrix machine we lack a client leg to),
+// clip marks 15100 clipboard legs (never carry input traffic).
 type legEntry struct {
 	sc       *mwbcrypto.SecureConn
 	outbound bool
+	clip     bool
 }
 
 // NewServer creates a server (version must be current|legacy, never auto).
@@ -57,7 +60,8 @@ func NewServer(log *util.Logger, msgPort, clipPort int, key, self string, v prot
 		v = protocol.ProtoCurrent
 	}
 	return &Server{log: log, sender: NewSender(0), dedup: &Dedup{}, pool: NewPool(log),
-		msgPort: msgPort, clipPort: clipPort, key: key, self: self, version: v,
+		msgPort: msgPort, clipPort: clipPort, key: key, magic: mwbcrypto.Magic24(key),
+		self: self, version: v,
 		legs: map[string]*legEntry{}, dialing: map[string]bool{}}
 }
 
@@ -190,7 +194,7 @@ func (s *Server) handleClipboardLeg(sc *mwbcrypto.SecureConn, magic uint32) {
 		return
 	}
 	s.mu.Lock()
-	s.legs["clip:"+name] = &legEntry{sc: sc}
+	s.legs["clip:"+name] = &legEntry{sc: sc, clip: true}
 	s.mu.Unlock()
 	s.log.Infof("clipboard leg from %q staged", name)
 }
