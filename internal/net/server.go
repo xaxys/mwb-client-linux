@@ -39,6 +39,9 @@ type Server struct {
 	// staged under "clip:"+name. Args: peer name, leg, peerPush (peer
 	// sent Push=79 and will send payload), peer post-action.
 	OnClipboardConn func(peer string, sc *mwbcrypto.SecureConn, peerPush bool, postAction int32)
+
+	// Handler receives decoded message-leg events (host/clipboard/UI).
+	Handler LegHandler
 }
 
 // legEntry is one peer leg; outbound marks legs we dialed (mesh parity:
@@ -200,6 +203,16 @@ func (s *Server) trustPeer(sc *mwbcrypto.SecureConn, peer, peerIP string, magic 
 	if empty {
 		s.matrix = protocol.AdoptFresh(s.self, peer)
 	}
+	// Late joiner with a vacancy: take the first free slot (AddToMachinePool
+	// parity) so pool/dial-back resolve immediately, before matrix traffic.
+	if s.matrix.SlotOf(peer) == 0 {
+		for i := range s.matrix.Slots {
+			if s.matrix.Slots[i] == "" {
+				s.matrix.Slots[i] = peer
+				break
+			}
+		}
+	}
 	m := s.matrix
 	slot := m.SlotOf(peer)
 	selfSlot := m.SlotOf(s.self)
@@ -225,6 +238,8 @@ func (s *Server) trustPeer(sc *mwbcrypto.SecureConn, peer, peerIP string, magic 
 	// Mesh dial-back (UpdateTCPClients parity): one outbound leg per peer,
 	// attempted once; the inbound leg already carries traffic if it fails.
 	s.maybeDialBack(peer, peerIP)
+	// This goroutine becomes the leg reader (MainTCPRoutine parity).
+	s.serveLeg(sc, peer, magic)
 }
 
 // sendPresence emits Heartbeat_ex on the new leg.

@@ -69,8 +69,14 @@ func TestTrustBurstAndDialBack(t *testing.T) {
 	s := testServer(key, "LINUX", mockPort, 0)
 	inbound, peerSC := loopbackPair(t, key)
 	defer peerSC.Close()
+	defer inbound.Close()
 
-	s.trustPeer(inbound, "WINDOWS", "127.0.0.1", magic)
+	// trustPeer ends by becoming the leg reader; run it async.
+	trusted := make(chan struct{})
+	go func() {
+		defer close(trusted)
+		s.trustPeer(inbound, "WINDOWS", "127.0.0.1", magic)
+	}()
 
 	// Presence: Heartbeat_ex from slot 1 as LINUX.
 	p := readOne(t, peerSC, magic, true)

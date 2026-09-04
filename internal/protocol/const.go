@@ -60,17 +60,20 @@ const (
 )
 
 // IsExtended reports whether a package type uses the 64-byte form.
-// Mirrors DATA.IsBigPackage: Hello/Awake/Heartbeat(-ex)/Handshake(-Ack)/
-// Clipboard(-family fast path)/Matrix carry the 32B MachineName tail;
-// drag-drop (70-75), MachineSwitched (77) and the input packets do not.
+// Mirrors DATA.IsBigPackage/MWBPacket.isBig: explicit list, plus the
+// matrix family (128 | wrap | twoRow). NOTE: matrix flags must ONLY be
+// stripped for types with bit7 set — stripping unconditionally mangles
+// heartbeat (20→16), clipboard (69→65), data-end (76→72), etc.
 func (t PackageType) IsExtended() bool {
-	base := byte(t) &^ 0x06 // strip MatrixSwapFlag(2)|MatrixTwoRowFlag(4)
-	switch PackageType(base) {
+	if byte(t)&0x80 != 0 {
+		return byte(t)&^0x06 == byte(PtMatrix)
+	}
+	switch t {
 	case PtHello, PtHeartbeat, PtAwake,
 		PtHeartbeatEx,
 		PtClipboard, PtClipboardAsk, PtClipboardPush,
 		PtClipboardText, PtClipboardImage, PtClipboardDataEnd,
-		PtHandshake, PtHandshakeAck, PtMatrix:
+		PtHandshake, PtHandshakeAck:
 		return true
 	}
 	return false
