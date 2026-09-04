@@ -26,14 +26,21 @@ internal/protocol/       DATA 32/64B codec, PackageType, MatrixFlags, dedup-50,
                          MachineID, NextMachine hijack, challenge/ack helpers
 internal/crypto/         current/legacy KDF+stream, Magic24, header+noise
 internal/net/            client dial 15101+clipboard 15100, dual listeners
-                         (6x500ms rebind), mesh dial-back, heartbeat/Awake,
-                         pool, LAN scan (15101 0.6s x64), mDNS/PTR resolve
+                          (6x500ms rebind), mesh dial-back, heartbeat/Awake,
+                          pool, LAN scan (15101 0.6s x64), mDNS/PTR resolve,
+                          clipboard beat/ask + key/mouse/nextmachine senders
 internal/input/          Backend iface + x11 / wayland-portal / evdev-uinput
                           (build-tag isolated) + edge detector + Helper handoff
                           (x11: XTest/XFixes/Xinerama via xgb; capture
                           grab-poll now, cgo XRecord staged as fallback)
+internal/host/           edge-switch loop (NextMachine delegate + forward
+                          while away + return warp), mock-verified
 internal/keymap/         WinVK <-> evdev/XKB (US first, DE/FR staged)
-internal/clipboard/      text FastPath (Deflate+48B chunks) + Ask/Push stubs
+internal/clipboard/      text FastPath (Deflate-UTF16LE + 48B chunks + 76 end)
+                          + secondary Ask/Push (1024B size*name header;
+                          text/image to memory, files to disk, 0* errors)
+                          + Manager (store/beat/pull glue; system clipboard
+                          integration staged)
 internal/config/         JSON (~/.config/mwb-client) + known hosts + dual keys
 internal/ui/             M0 CLI/tray stub; Fyne/GTK settings in M3+
 internal/util/           log, bounds/normalize, LAN candidates
@@ -88,5 +95,11 @@ portal prompts, cursor behavior) — Docker can't cover it. See
 
 ## Status
 
-M0 scaffold + M1 mock-peer E2E. X11/portal/evdev injection lands in M2
-(requires Ubuntu hardware); image/file clipboard staged as stubs.
+M0/M1 protocol + handshake + mock E2E; M2a X11 backend (xgb) + keymap-US +
+host switch loop, Xvfb-loopback + mock verified; M3 clipboard
+(text/image/file, fast path + secondary, mock verified against PowerToys
+wire behavior); M4 server trust/presence/burst/dial-back, mock verified;
+M5 `.deb` skeleton builds (`sh scripts/build-deb.sh`, pure Go).
+Pending hardware: X11-session feel + Windows dual-machine E2E, portal
+(needs 24.04), evdev (needs input group + re-login), settings GUI
+(needs apt deps), client dispatch loop (joins daemon wiring).

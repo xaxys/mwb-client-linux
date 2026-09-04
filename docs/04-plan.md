@@ -11,11 +11,17 @@
   再 Wayland portal → **M2b**；uinput/evdev 兜底 → **M2c**。
   双向切边 + NextMachine + 光标显隐 + WinVK↔evdev 表；与真实 PowerToys
   2 机对测延迟。
-- **M3 文本剪贴板**（真机）：主通道小文本 + 副通道拉取；图片/文件明确 stub。
-- **M4 Server 全对称**（真机）：双监听 + 独立 serverKey + presence 广播 +
-  mesh 单拨 + 6 重试 + 切边 5s watchdog；Windows 反连验证。
-- **M5 包装发布**：`.deb` + udev（uinput/input）+ systray + Fyne 设置页 +
-  权限引导（portal 授权 / input 组自检一键脚本）；README 真机矩阵
+- **M3 文本/图片/文件剪贴板**：主通道小编码（文本 Deflate-UTF16LE / 图片
+  原字节分片 + 76 终结）+ 副通道拉取（69/79 头 + 1024B `<size>*<name>` +
+  精确字节流；text/image 进内存，文件落盘 temp+rename；`0*` 错误头）。
+  与 PowerToys 源码逐项对齐（含 77=MachineSwitched、终结包 64B 等勘误），
+  mock 回环全验；真机与 PowerToys 对测待补。
+- **M4 Server 全对称**（ trustee 补齐：presence 心跳 + matrix burst + pool
+  槽位精化 + mesh 单拨 + clip 口 MachineID 校验；mock 全验）；
+  客户端收包分发循环随 daemon 接线补（真机）。
+- **M5 包装发布**：无 GUI 的 `.deb` 骨架先行（`scripts/build-deb.sh`，
+  纯 Go 零依赖 + udev 规则 + input 组提示）；Fyne/GTK 设置页与 systray
+  需 apt 依赖，真机阶段补；README 真机矩阵
   （X11/Wayland × Client/Server × current/legacy）。
 
 M2 拆分（同时兼容 22.04/X11 基线，增量非推翻）：M2a X11（22.04+24.04 X11 会话

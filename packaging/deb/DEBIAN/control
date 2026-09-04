@@ -1,0 +1,11 @@
+Package: mwb-client
+Version: 0.1.0-m1
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: mwb-client-linux contributors
+Description: Mouse Without Borders client for Linux (Go)
+ Speaks the PowerToys MWB wire protocol (current + legacy) as Client and
+ Server. X11 + Wayland-portal + evdev-uinput backends with honest runtime
+ probing; Wayland GNOME42 without portal runs in restricted mode
+ (needs the input group, see /lib/udev/rules.d/99-mwb-client-input.rules).

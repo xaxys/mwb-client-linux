@@ -1,0 +1,19 @@
+#!/bin/sh
+# postinst: non-fatal helpers (never fail the install).
+set -eu
+
+# evdev/uinput restricted mode needs the input group on Wayland GNOME42.
+if ! groups mwb 2>/dev/null | grep -qw input; then
+  if getent group input >/dev/null; then
+    echo "mwb-client: for evdev/uinput capture add yourself to the input group:"
+    echo "  sudo usermod -aG input $USER   # then re-login"
+  fi
+fi
+
+# Reload udev so 99-mwb-client-input.rules applies without reboot.
+if command -v udevadm >/dev/null 2>&1; then
+  udevadm control --reload-rules 2>/dev/null || true
+  udevadm trigger --subsystem-match=input 2>/dev/null || true
+fi
+
+exit 0

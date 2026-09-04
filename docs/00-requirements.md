@@ -14,7 +14,7 @@ macOS 已有独立实现 `xaxys/mwb-client-macos`（Swift），Linux 侧从零�
 |---|---|
 | 语言 | Go（单静态二进制；`net`/`crypto`/`encoding/binary` 标准库即够协议） |
 | 桌面优先 | Wayland GNOME 优先，同时兼容 X11（见 `02-linux-constraints.md`） |
-| MVP | 键鼠 + 切边 + 文本剪贴板 |
+| MVP | 键鼠 + 切边 + 剪贴板（文本/图片/文件，图片与文件不再是 stub） |
 | 拓扑角色 | Client + Server 全对称（每台机器既是 Host 也是 Client，无永久主从） |
 | 目标系统 | Ubuntu 22.04 LTS 与 24.04 LTS（`02` 有两代差异表） |
 | 协议 | 照抄 PowerToys 线协议 + macOS 已验证结论，不自创（见 `01-audit.md`） |
@@ -23,9 +23,11 @@ macOS 已有独立实现 `xaxys/mwb-client-macos`（Swift），Linux 侧从零�
 
 - M0–M1：协议、双加密、握手、拓扑、mock 对端 E2E（Docker 内可验）。
 - M2：输入闭环（X11 → Wayland portal → evdev/uinput 兜底），需真机。
-- M3：文本剪贴板真机联调；图片/文件传输明确为 stub（留口，不做）。
+- M3：文本/图片/文件剪贴板（主通道小数据 + 副通道 Ask/Push 拉取，全部先经
+  mock 回环验证，真机再与 PowerToys 对测）。
 - M4：Server 全对称（Windows 反连）。
-- M5：`.deb` 包装 + systray + 设置页 + 真机验证矩阵。
+- M5：`.deb` 包装 + systray + 设置页 + 真机验证矩阵（设置页 GUI 需 apt
+  依赖，在真机阶段补；先出无 GUI 的 .deb 骨架 + udev 规则）。
 
 ## 非目标
 

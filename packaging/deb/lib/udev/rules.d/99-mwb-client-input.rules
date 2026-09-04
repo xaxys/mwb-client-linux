@@ -1,0 +1,6 @@
+# mwb-client evdev/uinput access (restricted-mode capture on Wayland GNOME42).
+# Primary path: physically-logged-in users get the device via uaccess.
+SUBSYSTEM=="input", TAG+="uaccess"
+# Fallback: members of the input group can read event nodes and uinput.
+KERNEL=="uinput", GROUP="input", MODE="0660"
+KERNEL=="event*", SUBSYSTEM=="input", GROUP="input", MODE="0640"
