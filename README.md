@@ -9,6 +9,15 @@ Golden reference: `microsoft/PowerToys/src/modules/MouseWithoutBorders`
 implementation). Protocol layer is a straight port; difficulty is all in
 Linux input backends.
 
+## Design docs (设计需求与方案，中文)
+
+- [00 原始设计需求](docs/00-requirements.md)
+- [01 审计结论（协议可照抄）](docs/01-audit.md)
+- [02 Linux 约束（难点全在输入）](docs/02-linux-constraints.md)
+- [03 拟定架构](docs/03-architecture.md)
+- [04 里程碑计划](docs/04-plan.md)
+- [05 真机验证清单](docs/05-verify.md)
+
 ## Layout
 
 ```
