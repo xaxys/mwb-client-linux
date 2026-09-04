@@ -1,8 +1,8 @@
 package net
 
 import (
-	"fmt"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -30,7 +30,7 @@ func Scan(candidates []string, log *util.Logger) []ScanResult {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			d := net.Dialer{Timeout: protocol.LANScanTimeout}
-			c, err := d.Dial("tcp", fmt.Sprintf("%s:%d", ip, protocol.MessagePort))
+			c, err := d.Dial("tcp", net.JoinHostPort(ip, strconv.Itoa(protocol.MessagePort)))
 			if err != nil {
 				return
 			}

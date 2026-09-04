@@ -3,6 +3,7 @@ package net
 import (
 	"fmt"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -32,7 +33,7 @@ type DialOption struct {
 // Each Auto candidate gets its own fresh TCP (a mismatched generation may
 // have desynced/closed the stream — never reuse across attempts).
 func Dial(opt DialOption) (*mwbcrypto.SecureConn, error) {
-	addr := fmt.Sprintf("%s:%d", opt.Host, opt.MsgPort)
+	addr := net.JoinHostPort(opt.Host, strconv.Itoa(opt.MsgPort))
 	d := net.Dialer{Timeout: opt.Timeout}
 	if d.Timeout == 0 {
 		d.Timeout = protocol.ConnectAttemptTimeout

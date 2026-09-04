@@ -1,5 +1,5 @@
-mwb-client
-mwb-client.exe
+/mwb-client
+/mwb-client.exe
 /out/
 /reference/
 *.test
