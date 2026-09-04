@@ -28,10 +28,18 @@ type Server struct {
 	mu       sync.Mutex
 	msgLn    net.Listener
 	clipLn   net.Listener
-	legs     map[string]*mwbcrypto.SecureConn
+	legs     map[string]*legEntry
+	dialing  map[string]bool
 	matrix   protocol.Matrix
 	stopCh   chan struct{}
 	stopOnce sync.Once
+}
+
+// legEntry is one peer leg; outbound marks legs we dialed (mesh parity:
+// UpdateTCPClients dials every matrix machine we lack a client leg to).
+type legEntry struct {
+	sc       *mwbcrypto.SecureConn
+	outbound bool
 }
 
 // NewServer creates a server (version must be current|legacy, never auto).
@@ -41,7 +49,7 @@ func NewServer(log *util.Logger, msgPort, clipPort int, key, self string, v prot
 	}
 	return &Server{log: log, sender: NewSender(0), dedup: &Dedup{}, pool: NewPool(log),
 		msgPort: msgPort, clipPort: clipPort, key: key, self: self, version: v,
-		legs: map[string]*mwbcrypto.SecureConn{}}
+		legs: map[string]*legEntry{}, dialing: map[string]bool{}}
 }
 
 // Listen binds both ports with 6x500ms rebind retries (WSAEADDRINUSE parity).
@@ -103,6 +111,7 @@ func (s *Server) handshakeFor(c net.Conn) (*mwbcrypto.SecureConn, error) {
 }
 
 func (s *Server) handleInbound(c net.Conn, isMsg bool) {
+	peerIP := remoteIP(c)
 	sc, err := s.handshakeFor(c)
 	if err != nil {
 		c.Close()
@@ -110,11 +119,10 @@ func (s *Server) handleInbound(c net.Conn, isMsg bool) {
 	}
 	magic := mwbcrypto.Magic24(s.key)
 	if !isMsg {
-		// Clipboard port: noise done; trust inherited from main legs
-		// (M4 validates MachineID against pool; M1 keeps socket staged).
-		s.mu.Lock()
-		s.legs["clip:"+c.RemoteAddr().String()] = sc
-		s.mu.Unlock()
+		// Clipboard port: trust is inherited from the message leg —
+		// the Push/Clipboard header name must map to a known ID with a
+		// live message leg, otherwise the socket is dropped.
+		s.handleClipboardLeg(sc, magic)
 		return
 	}
 	peer, err := ServerHandshake(sc, magic, s.sender, 0, s.self)
@@ -122,24 +130,162 @@ func (s *Server) handleInbound(c net.Conn, isMsg bool) {
 		sc.Close()
 		return
 	}
-	s.trustPeer(sc, peer, magic)
+	s.trustPeer(sc, peer, peerIP, magic)
 }
 
-func (s *Server) trustPeer(sc *mwbcrypto.SecureConn, peer string, magic uint32) {
+// remoteIP extracts the inbound peer IP for mesh dial-back.
+func remoteIP(c net.Conn) string {
+	addr, ok := c.RemoteAddr().(*net.TCPAddr)
+	if !ok || addr == nil {
+		return ""
+	}
+	return addr.IP.String()
+}
+
+// handleClipboardLeg validates the 15100 Push/Clipboard header against the
+// pool (name must be learned with a live message leg) and stages the leg.
+func (s *Server) handleClipboardLeg(sc *mwbcrypto.SecureConn, magic uint32) {
+	raw, err := sc.ReadPacket(true)
+	if err != nil {
+		sc.Close()
+		return
+	}
+	p, err := protocol.Decode(raw, magic)
+	if err != nil {
+		sc.Close()
+		return
+	}
+	if p.Type != protocol.PtClipboardPush && p.Type != protocol.PtClipboard {
+		sc.Close()
+		return
+	}
+	name := p.MachineName
 	s.mu.Lock()
-	s.legs[peer] = sc
+	_, hasLeg := s.legs[name]
+	s.mu.Unlock()
+	if name == "" || s.pool.IDOf(name) == 0 || !hasLeg {
+		s.log.Warnf("clipboard leg from unknown %q rejected (no message leg)", name)
+		sc.Close()
+		return
+	}
+	s.mu.Lock()
+	s.legs["clip:"+name] = &legEntry{sc: sc}
+	s.mu.Unlock()
+	s.log.Infof("clipboard leg from %q staged", name)
+}
+
+func (s *Server) trustPeer(sc *mwbcrypto.SecureConn, peer, peerIP string, magic uint32) {
+	s.mu.Lock()
+	s.legs[peer] = &legEntry{sc: sc}
 	// Anti-clobber: fresh server adopts [self, peer] before broadcasting.
 	empty := s.matrix.IsEmpty()
 	if empty {
 		s.matrix = protocol.AdoptFresh(s.self, peer)
 	}
 	m := s.matrix
+	slot := m.SlotOf(peer)
+	selfSlot := m.SlotOf(s.self)
+	if selfSlot == 0 {
+		selfSlot = 1
+	}
 	s.mu.Unlock()
-	s.pool.Learn(peer, 2) // slot refined by matrix traffic
+	if slot != 0 {
+		s.pool.Learn(peer, slot)
+	}
+	s.log.Infof("trusted peer %q (fresh-adopt=%v slot=%d)", peer, empty, slot)
 	// Presence + matrix burst so the newcomer learns name/layout immediately.
-	_ = magic
-	_ = m
-	s.log.Infof("trusted peer %q (fresh-adopt=%v)", peer, empty)
+	if err := s.sendPresence(sc, magic, selfSlot); err != nil {
+		s.dropLeg(peer)
+		sc.Close()
+		return
+	}
+	if err := s.sendMatrixBurst(sc, magic, m); err != nil {
+		s.dropLeg(peer)
+		sc.Close()
+		return
+	}
+	// Mesh dial-back (UpdateTCPClients parity): one outbound leg per peer,
+	// attempted once; the inbound leg already carries traffic if it fails.
+	s.maybeDialBack(peer, peerIP)
+}
+
+// sendPresence emits Heartbeat_ex on the new leg.
+func (s *Server) sendPresence(sc *mwbcrypto.SecureConn, magic uint32, selfSlot uint32) error {
+	p := &protocol.Packet{Type: protocol.PtHeartbeatEx, ID: s.sender.Next(),
+		Src: selfSlot, Des: protocol.IDAll, HasName: true, MachineName: s.self}
+	wire, err := p.Encode(magic)
+	if err != nil {
+		return err
+	}
+	return sc.WritePacket(wire)
+}
+
+// sendMatrixBurst emits the 4 layout packets (Src 1..4) on the new leg.
+func (s *Server) sendMatrixBurst(sc *mwbcrypto.SecureConn, magic uint32, m protocol.Matrix) error {
+	t := m.TypeByte()
+	for i := 0; i < protocol.MaxMachine; i++ {
+		p := &protocol.Packet{Type: t, ID: s.sender.Next(), Src: uint32(i + 1),
+			Des: protocol.IDAll, HasName: true, MachineName: m.Slots[i]}
+		wire, err := p.Encode(magic)
+		if err != nil {
+			return err
+		}
+		if err := sc.WritePacket(wire); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// maybeDialBack opens the outbound mesh leg unless one exists or a dial is
+// already in flight.
+func (s *Server) maybeDialBack(peer, peerIP string) {
+	if peer == "" || peerIP == "" || peer == s.self {
+		return
+	}
+	s.mu.Lock()
+	if _, ok := s.legs[peer+"#out"]; ok {
+		s.mu.Unlock()
+		return
+	}
+	if s.dialing[peer] {
+		s.mu.Unlock()
+		return
+	}
+	s.dialing[peer] = true
+	s.mu.Unlock()
+	go s.dialBack(peer, peerIP)
+}
+
+// dialBack runs one outbound handshake to the peer message port.
+func (s *Server) dialBack(peer, peerIP string) {
+	defer func() {
+		s.mu.Lock()
+		delete(s.dialing, peer)
+		s.mu.Unlock()
+	}()
+	sc, err := Dial(DialOption{Version: s.version, Host: peerIP, MsgPort: s.msgPort,
+		Key: s.key, Timeout: protocol.ConnectAttemptTimeout})
+	if err != nil {
+		s.log.Warnf("mesh dial-back to %q: %v", peer, err)
+		return
+	}
+	magic := mwbcrypto.Magic24(s.key)
+	if _, err := ClientHandshake(sc, magic, s.sender, 0, s.self); err != nil {
+		s.log.Warnf("mesh dial-back handshake to %q: %v", peer, err)
+		sc.Close()
+		return
+	}
+	s.mu.Lock()
+	s.legs[peer+"#out"] = &legEntry{sc: sc, outbound: true}
+	s.mu.Unlock()
+	s.log.Infof("mesh dial-back to %q established", peer)
+}
+
+func (s *Server) dropLeg(name string) {
+	s.mu.Lock()
+	delete(s.legs, name)
+	s.mu.Unlock()
 }
 
 // Stop closes listeners and all legs.
@@ -153,8 +299,28 @@ func (s *Server) Stop() {
 	if s.clipLn != nil {
 		s.clipLn.Close()
 	}
-	for _, sc := range s.legs {
-		sc.Close()
+	for _, e := range s.legs {
+		e.sc.Close()
 	}
-	s.legs = map[string]*mwbcrypto.SecureConn{}
+	s.legs = map[string]*legEntry{}
+}
+
+// MsgAddr returns the bound message listener address (port 0 → ephemeral).
+func (s *Server) MsgAddr() net.Addr {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.msgLn == nil {
+		return nil
+	}
+	return s.msgLn.Addr()
+}
+
+// ClipAddr returns the bound clipboard listener address.
+func (s *Server) ClipAddr() net.Addr {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.clipLn == nil {
+		return nil
+	}
+	return s.clipLn.Addr()
 }

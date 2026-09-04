@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 )
 
 // SecureConn wraps a TCP conn in the MWB encrypted stream.
@@ -145,6 +146,11 @@ func (s *SecureConn) ReadPacket(extended bool) ([]byte, error) {
 
 // Close closes the underlying conn.
 func (s *SecureConn) Close() error { return s.conn.Close() }
+
+// SetReadDeadline passthrough (clipboard legs use handshake timeouts).
+func (s *SecureConn) SetReadDeadline(t time.Time) error {
+	return s.conn.SetReadDeadline(t)
+}
 
 // RemoteAddr passthrough.
 func (s *SecureConn) RemoteAddr() net.Addr { return s.conn.RemoteAddr() }
