@@ -118,8 +118,14 @@ func (s *Server) handshakeFor(c net.Conn) (*mwbcrypto.SecureConn, error) {
 
 func (s *Server) handleInbound(c net.Conn, isMsg bool) {
 	peerIP := remoteIP(c)
+	leg := "msg"
+	if !isMsg {
+		leg = "clip"
+	}
+	s.log.Infof("inbound %s from %s", leg, c.RemoteAddr())
 	sc, err := s.handshakeFor(c)
 	if err != nil {
+		s.log.Warnf("inbound %s stream setup failed: %v", leg, err)
 		c.Close()
 		return
 	}
@@ -133,6 +139,7 @@ func (s *Server) handleInbound(c net.Conn, isMsg bool) {
 	}
 	peer, err := ServerHandshake(sc, magic, s.sender, 0, s.self)
 	if err != nil {
+		s.log.Warnf("inbound msg handshake failed: %v", err)
 		sc.Close()
 		return
 	}
