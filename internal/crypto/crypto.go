@@ -60,6 +60,9 @@ func DeriveLegacy(password string) []byte {
 // Magic24 derives the 32-bit magic via 50,000x SHA-512 over a 32B buffer
 // holding the ASCII security key zero-padded, then:
 // magic = hash[0]<<23 + hash[1]<<16 + hash[63]<<8 + hash[2].
+// NOTE: addition, NOT bitwise OR — bit 23 overlaps (h[0] bit0 and h[1]
+// bit7 both land there), so OR corrupts the magic whenever h[0] is odd
+// and h[1] >= 0x80. Sum never overflows 32 bits (max 0x807FFFFF).
 func Magic24(securityKey string) uint32 {
 	var buf [32]byte
 	copy(buf[:], []byte(securityKey))
@@ -67,7 +70,7 @@ func Magic24(securityKey string) uint32 {
 	for i := 0; i < 50_000; i++ {
 		h = sha512.Sum512(h[:])
 	}
-	return uint32(h[0])<<23 | uint32(h[1])<<16 | uint32(h[63])<<8 | uint32(h[2])
+	return uint32(h[0])<<23 + uint32(h[1])<<16 + uint32(h[63])<<8 + uint32(h[2])
 }
 
 // --- CBC helpers (Zeros padding; packets are already 16B-aligned) ---

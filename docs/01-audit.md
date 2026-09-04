@@ -66,7 +66,8 @@ PackageType（字节 0）：2 Hi / 3 Hello(64B) / 4 ByeBye / 20 Heartbeat(64B) /
 ### Magic（两代相同，不随 KDF 升级变）
 
 32B 缓冲填 Security Key ASCII（零补齐）→ SHA-512 → 迭代 50,000 次 →
-`magic = hash[0]<<23 | hash[1]<<16 | hash[63]<<8 | hash[2]`。
+`magic = hash[0]<<23 + hash[1]<<16 + hash[63]<<8 + hash[2]`（加法非或：
+bit23 重叠，或运算在 h[0] 为奇且 h[1]≥0x80 时 corrupt，已踩坑）。
 发包前取高 16 位嵌字节 2..3。这是 framing/identity，不是 key material。
 
 ### 握手（主通道，完全对称，双方跑同一套 `MainTCPRoutine`）

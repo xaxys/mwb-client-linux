@@ -19,6 +19,23 @@ func TestMagicDeterministic(t *testing.T) {
 	}
 }
 
+func TestMagicKnownVectors(t *testing.T) {
+	// Cross-implementation vectors (verified with Python hashlib +
+	// macOS MWBCrypto.get24BitHash). Self-consistency tests CANNOT catch
+	// formula bugs (both ends share them) — these can. NOTE: addition,
+	// not OR: bit 23 overlaps, so vectors must cover h[0]-odd/h[1]-high.
+	for _, tc := range []struct {
+		key   string
+		magic uint32
+	}{
+		{"WE55r4EHTQ0G", 0x5a6d228a},
+		{"test-key-123", 0x0e4c4891},
+	} {
+		if got := mwbcrypto.Magic24(tc.key); got != tc.magic {
+			t.Fatalf("Magic24(%q) = %08x, want %08x", tc.key, got, tc.magic)
+		}
+	}
+}
 func TestMagicEmptyKey(t *testing.T) {
 	// must not panic; still deterministic
 	m := mwbcrypto.Magic24("")
