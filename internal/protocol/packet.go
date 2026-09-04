@@ -165,6 +165,16 @@ func (m MouseEvent) IsRelative() bool {
 		m.Y >= MoveMouseRelative || m.Y <= -MoveMouseRelative
 }
 
+// RelativeDelta encodes a pixel delta in the 100000-offset relative mode:
+// non-negative d goes as d+100000, negative as d-100000 (host acceleration
+// parity: the receiver subtracts the marker to recover the signed delta).
+func RelativeDelta(d int) int32 {
+	if d >= 0 {
+		return int32(d + MoveMouseRelative)
+	}
+	return int32(d - MoveMouseRelative)
+}
+
 // NextMachine hijacks the mouse payload: X/Y = 0..65535 entry coords,
 // WheelDelta = destination machine ID (1..4).
 func (p *Packet) SetNextMachine(entryX, entryY int, destID uint32) {

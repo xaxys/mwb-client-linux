@@ -112,6 +112,15 @@ const (
 	CrossingWatchdog        = 5 * time.Second
 )
 
+// KEYBDDATA dwFlags (KEYEVENTF parity, see DATA.cs).
+// Releases (KEYUP and SYSKEYUP alike) carry KeyFlagUp; the sender must
+// sleep KeyUpThrottle (10ms) after each release.
+const (
+	KeyFlagDown     int32 = 0
+	KeyFlagExtended int32 = 0x0001
+	KeyFlagUp       int32 = 0x0002
+)
+
 // ProtocolVersion selects the wire encryption generation.
 type ProtocolVersion string
 

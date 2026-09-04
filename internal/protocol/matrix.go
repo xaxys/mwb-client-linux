@@ -51,6 +51,90 @@ func AdoptFresh(selfName, peerName string) Matrix {
 	return m
 }
 
+// Direction is a screen-edge direction for neighbor lookup.
+type Direction int
+
+const (
+	DirNone Direction = iota
+	DirLeft
+	DirRight
+	DirTop
+	DirBottom
+)
+
+// Neighbor returns the occupied slot ID adjacent to self in direction d
+// (IDNone when no machine lies that way). Vacant slots are skipped;
+// horizontal edges wrap only when the matrix has Wrap set.
+func (m *Matrix) Neighbor(self uint32, d Direction) uint32 {
+	if self < 1 || self > MaxMachine || d == DirNone {
+		return IDNone
+	}
+	occupied := func(slot uint32) bool {
+		return slot >= 1 && slot <= MaxMachine && m.Slots[slot-1] != ""
+	}
+	if !m.TwoRow {
+		i := int(self) // 1-based position = slot in 1x4
+		step := 0
+		switch d {
+		case DirRight:
+			step = 1
+		case DirLeft:
+			step = -1
+		default:
+			return IDNone
+		}
+		for n := 1; n <= MaxMachine; n++ {
+			i += step
+			if m.Wrap {
+				i = (i-1+MaxMachine*8)%MaxMachine + 1
+			} else if i < 1 || i > MaxMachine {
+				return IDNone
+			}
+			if uint32(i) != self && occupied(uint32(i)) {
+				return uint32(i)
+			}
+		}
+		return IDNone
+	}
+	// 2x2: slots [[1,2],[3,4]].
+	row, col := (int(self)-1)/2, (int(self)-1)%2
+	at := func(r, c int) uint32 {
+		if r < 0 || r > 1 || c < 0 || c > 1 {
+			return IDNone
+		}
+		return uint32(r*2 + c + 1)
+	}
+	switch d {
+	case DirRight:
+		if s := at(row, col+1); occupied(s) {
+			return s
+		}
+		if m.Wrap {
+			if s := at(row, 0); occupied(s) && s != self {
+				return s
+			}
+		}
+	case DirLeft:
+		if s := at(row, col-1); occupied(s) {
+			return s
+		}
+		if m.Wrap {
+			if s := at(row, 1); occupied(s) && s != self {
+				return s
+			}
+		}
+	case DirBottom:
+		if s := at(row+1, col); occupied(s) {
+			return s
+		}
+	case DirTop:
+		if s := at(row-1, col); occupied(s) {
+			return s
+		}
+	}
+	return IDNone
+}
+
 // SlotOf returns the 1-based ID for name, or 0 if absent (case-insensitive,
 // Windows hostnames are case-insensitive).
 func (m *Matrix) SlotOf(name string) uint32 {

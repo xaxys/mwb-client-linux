@@ -106,6 +106,44 @@ func (c *Client) Send(p *protocol.Packet) error {
 	return sc.WritePacket(wire)
 }
 
+// SendKey sends one keyboard packet; after a release (KEYUP/SYSKEYUP) it
+// sleeps KeyUpThrottle so the peer input queue is never flooded and
+// modifier order is preserved.
+func (c *Client) SendKey(vk, flags int32, src, des uint32) error {
+	p := &protocol.Packet{Type: protocol.PtKeyboard, Src: src, Des: des}
+	p.SetKey(protocol.KeyEvent{DateTime: nowTicks(), VK: vk, Flags: flags})
+	if err := c.Send(p); err != nil {
+		return err
+	}
+	if flags&protocol.KeyFlagUp != 0 {
+		time.Sleep(protocol.KeyUpThrottle)
+	}
+	return nil
+}
+
+// nowTicks renders DateTime like .NET ticks (100ns since 0001-01-01).
+func nowTicks() int64 { return time.Now().UnixNano()/100 + 621355968000000000 }
+
+// SendMouse sends one mouse packet (relative or absolute payload).
+func (c *Client) SendMouse(m protocol.MouseEvent, src, des uint32) error {
+	p := &protocol.Packet{Type: protocol.PtMouse, Src: src, Des: des}
+	p.SetMouse(m)
+	return c.Send(p)
+}
+
+// SendNextMachine tells the current machine that input moves to dest
+// (Des=new machine; payload carries the normalized entry + dest ID).
+func (c *Client) SendNextMachine(src, dest uint32, entryX, entryY int) error {
+	p := &protocol.Packet{Src: src, Des: dest}
+	p.SetNextMachine(entryX, entryY, dest)
+	return c.Send(p)
+}
+
+// SendHideMouse hides the cursor on the machine being left.
+func (c *Client) SendHideMouse(src, dest uint32) error {
+	return c.Send(&protocol.Packet{Type: protocol.PtHideMouse, Src: src, Des: dest})
+}
+
 // SendHeartbeat broadcasts Heartbeat/Awake presence (ID.ALL).
 func (c *Client) SendHeartbeat(awake bool, src uint32, name string) error {
 	t := protocol.PtHeartbeat
