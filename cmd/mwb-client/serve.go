@@ -47,6 +47,7 @@ func runStack(s *mwbnet.Server, cfg config.Config, selfName string, key string, 
 	s.Handler = mwbnet.LegHandler{
 		OnMatrix: func(mm protocol.Matrix) { h.SetMatrix(mm) },
 		OnNextMachine: func(x, y int, dest uint32) {
+			log.Infof("switch: focus back entry=(%d,%d) dest=%d", x, y, dest)
 			h.OnNextMachine(x, y)
 			go pullOnReturn(s, mgr, byName, cfg, selfName, self, key, log)
 		},
@@ -54,7 +55,9 @@ func runStack(s *mwbnet.Server, cfg config.Config, selfName string, key string, 
 			if h.Current() != self {
 				return
 			}
-			_ = be.Inject(input.Event{Kind: input.KindKey, VK: int(vk), KeyDown: flags == protocol.KeyFlagDown})
+			if err := be.Inject(input.Event{Kind: input.KindKey, VK: int(vk), KeyDown: flags == protocol.KeyFlagDown}); err != nil {
+				log.Warnf("inject key: %v", err)
+			}
 		},
 		OnMouse: func(mm protocol.MouseEvent, src uint32) {
 			if h.Current() != self {
@@ -88,7 +91,9 @@ func runStack(s *mwbnet.Server, cfg config.Config, selfName string, key string, 
 						Y: util.Denormalize(int(m.Y), b.Top, b.Bottom)}
 				}
 			}
-			_ = be.Inject(ev)
+			if err := be.Inject(ev); err != nil {
+				log.Warnf("inject mouse: %v", err)
+			}
 		},
 		OnHideMouse: func() { _ = be.HideCursor() },
 		OnBeat: func(src uint32, name string, pa int32) {

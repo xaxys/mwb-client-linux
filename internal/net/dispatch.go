@@ -1,9 +1,26 @@
 package net
 
 import (
+	"log"
+	"os"
+	"sync/atomic"
+
 	mwbcrypto "github.com/xaxys/mwb-client-linux/internal/crypto"
 	"github.com/xaxys/mwb-client-linux/internal/protocol"
 )
+
+// netDebug caps env-gated packet tracing (MWB_DEBUG_NET=1).
+var netDebugCount atomic.Int32
+
+func tracePacket(dir string, p *protocol.Packet) {
+	if os.Getenv("MWB_DEBUG_NET") == "" {
+		return
+	}
+	if netDebugCount.Add(1) > 60 {
+		return
+	}
+	log.Printf("net-%s type=%d src=%d des=%d id=%d name=%q", dir, byte(p.Type), p.Src, p.Des, p.ID, p.MachineName)
+}
 
 // LegHandler receives decoded inbound-leg events. Every field is optional;
 // the daemon wires host/clipboard/UI here, the raw server still maintains
@@ -55,6 +72,7 @@ func (s *Server) serveLeg(sc *mwbcrypto.SecureConn, peer string, magic uint32) {
 		if s.dedup.Seen(p.ID) {
 			continue
 		}
+		tracePacket("rx", p)
 		if s.handlePacket(sc, magic, peer, p) {
 			return
 		}
