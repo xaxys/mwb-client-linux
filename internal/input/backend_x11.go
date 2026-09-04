@@ -393,21 +393,22 @@ func (b *x11Backend) StopCapture() error {
 		return nil
 	}
 	b.stopOnce.Do(func() { close(b.stopCh) })
-	b.wg.Wait()
 	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.grab == nil {
-		return nil
+	g = b.grab
+	// Close first: unblocks WaitForEvent so the event loop can exit.
+	if g != nil {
+		setup := xproto.Setup(g)
+		for kc := int(setup.MinKeycode); kc <= int(setup.MaxKeycode); kc++ {
+			xproto.UngrabKey(g, xproto.Keycode(kc), b.root, xproto.ModMaskAny)
+		}
+		for btn := 1; btn <= 7; btn++ {
+			xproto.UngrabButton(g, byte(btn), b.root, xproto.ModMaskAny)
+		}
+		g.Close()
+		b.grab = nil
 	}
-	setup := xproto.Setup(b.grab)
-	for kc := int(setup.MinKeycode); kc <= int(setup.MaxKeycode); kc++ {
-		xproto.UngrabKey(b.grab, xproto.Keycode(kc), b.root, xproto.ModMaskAny)
-	}
-	for btn := 1; btn <= 7; btn++ {
-		xproto.UngrabButton(b.grab, byte(btn), b.root, xproto.ModMaskAny)
-	}
-	b.grab.Close()
-	b.grab = nil
+	b.mu.Unlock()
+	b.wg.Wait()
 	return nil
 }
 

@@ -5,6 +5,7 @@ package input
 import (
 	"encoding/binary"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -227,6 +228,15 @@ type evdevBackend struct {
 }
 
 func NewEvdevBackend() (Backend, error) {
+	devs := openUsableDevs()
+	if len(devs) == 0 {
+		return nil, fmt.Errorf("input: no readable evdev nodes (need input group or root; see scripts/check-input-perms.sh)")
+	}
+	return &evdevBackend{devs: devs}, nil
+}
+
+// openUsableDevs probes every event node, keeping readable mice/keyboards.
+func openUsableDevs() []*evdevDev {
 	matches, _ := filepath.Glob("/dev/input/event*")
 	var devs []*evdevDev
 	for _, m := range matches {
@@ -234,10 +244,7 @@ func NewEvdevBackend() (Backend, error) {
 			devs = append(devs, d)
 		}
 	}
-	if len(devs) == 0 {
-		return nil, fmt.Errorf("input: no readable evdev nodes (need input group or root; see scripts/check-input-perms.sh)")
-	}
-	return &evdevBackend{devs: devs}, nil
+	return devs
 }
 
 func (b *evdevBackend) Name() string { return string(BackendEvdev) }
@@ -482,6 +489,26 @@ func (b *evdevBackend) StartCapture(cb func(Event)) error {
 	}
 	b.stopCh = make(chan struct{})
 	b.stopOnce = sync.Once{}
+	if os.Getenv("MWB_DEBUG_INPUT") != "" {
+		orig := cb
+		var n atomic.Int32
+		cb = func(e Event) {
+			if n.Add(1) <= 30 {
+				log.Printf("input-event kind=%d x=%d y=%d rel=%v vk=%d down=%v flag=%#x wheel=%d",
+					e.Kind, e.X, e.Y, e.Rel, e.VK, e.KeyDown, e.MouseFlag, e.Wheel)
+			}
+			orig(e)
+		}
+	}
+	if len(b.devs) == 0 {
+		// Reopen after a stop (StopCapture closes fds to unblock readers).
+		b.devs = openUsableDevs()
+		if len(b.devs) == 0 {
+			b.stopCh = nil
+			b.mu.Unlock()
+			return fmt.Errorf("input: no readable evdev nodes (need input group or root)")
+		}
+	}
 	for _, d := range b.devs {
 		b.wg.Add(1)
 		go b.readLoop(d, cb)
@@ -493,20 +520,24 @@ func (b *evdevBackend) StartCapture(cb func(Event)) error {
 func (b *evdevBackend) StopCapture() error {
 	b.mu.Lock()
 	ch := b.stopCh
+	devs := b.devs
 	b.mu.Unlock()
 	if ch == nil {
 		return nil
 	}
 	b.stopOnce.Do(func() { close(ch) })
+	// Closing the fds unblocks the readers (they exit on stopCh); the
+	// grab is released implicitly and re-applied on next StartCapture.
+	for _, d := range devs {
+		_ = ioctl(d.f.Fd(), ioctlEvGrab, uintptr(0))
+		d.f.Close()
+	}
 	b.wg.Wait()
 	b.mu.Lock()
 	b.stopCh = nil
 	b.stopOnce = sync.Once{}
+	b.devs = nil
 	b.mu.Unlock()
-	// Release any grab so the session never loses input.
-	for _, d := range b.devs {
-		_ = ioctl(d.f.Fd(), ioctlEvGrab, uintptr(0))
-	}
 	b.forwarding.Store(false)
 	return nil
 }
