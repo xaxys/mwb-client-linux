@@ -144,6 +144,11 @@ func (c *Client) SendHideMouse(src, dest uint32) error {
 	return c.Send(&protocol.Packet{Type: protocol.PtHideMouse, Src: src, Des: dest})
 }
 
+// SendSwitched announces arrival at the new machine (MachineSwitched).
+func (c *Client) SendSwitched(src, dest uint32) error {
+	return c.Send(&protocol.Packet{Type: protocol.PtMachineSwitched, Src: src, Des: dest})
+}
+
 // SendHeartbeat broadcasts Heartbeat/Awake presence (ID.ALL).
 func (c *Client) SendHeartbeat(awake bool, src uint32, name string) error {
 	t := protocol.PtHeartbeat

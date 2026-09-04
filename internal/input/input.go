@@ -135,6 +135,10 @@ func (s *Switcher) RequestSwitch(r SwitchRequest) {
 	}
 }
 
+// Chan exposes the request queue so a Run loop can select it together with
+// other channels (forward queues, stop signals).
+func (s *Switcher) Chan() <-chan SwitchRequest { return s.ch }
+
 // Run blocks processing requests until stop is closed.
 func (s *Switcher) Run(handle func(SwitchRequest), stop <-chan struct{}) {
 	for {
