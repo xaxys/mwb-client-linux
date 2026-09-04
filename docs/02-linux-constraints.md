@@ -18,8 +18,11 @@
 
 运行时三档自动降级（`XDG_SESSION_TYPE` + portal 能力探测决定，不写死）：
 
-1. **X11 会话**（22.04 主力 / 24.04 可选）：XRecord/XInput2 捕获 + XTest 注入
-   + XFixes，两代系统行为一致，最稳，M2 先用它打通闭环。
+1. **X11 会话**（22.04 主力 / 24.04 可选）：XTest 注入 + XFixes +
+   Xinerama/RandR 多显；捕获分两档可切换——A（纯 Go xgb 被动抓键鼠 +
+   QueryPointer 轮询，先行）/ B（cgo XRecord 全保真，候补，B 不可用回退 A）。
+   原因：xgb 的 cookie 模型是一请求一回复，XRecord 单请求多回复流会
+   corrupt 连接（已实测确认），故 xgb 只承担单回复操作。
 2. **Wayland + GNOME46+（24.04）**：InputCapture 捕获 + RemoteDesktop/libei
    注入，走 portal 授权；失败落到 3。
 3. **Wayland + GNOME42（22.04）/ portal 缺失**：降级 evdev 捕获 + uinput 注入

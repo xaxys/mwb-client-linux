@@ -29,7 +29,9 @@ internal/net/            client dial 15101+clipboard 15100, dual listeners
                          (6x500ms rebind), mesh dial-back, heartbeat/Awake,
                          pool, LAN scan (15101 0.6s x64), mDNS/PTR resolve
 internal/input/          Backend iface + x11 / wayland-portal / evdev-uinput
-                         (build-tag isolated) + edge detector + Helper handoff
+                          (build-tag isolated) + edge detector + Helper handoff
+                          (x11: XTest/XFixes/Xinerama via xgb; capture
+                          grab-poll now, cgo XRecord staged as fallback)
 internal/keymap/         WinVK <-> evdev/XKB (US first, DE/FR staged)
 internal/clipboard/      text FastPath (Deflate+48B chunks) + Ask/Push stubs
 internal/config/         JSON (~/.config/mwb-client) + known hosts + dual keys
