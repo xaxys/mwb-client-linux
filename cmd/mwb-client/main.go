@@ -1,7 +1,8 @@
 // Command mwb-client is the MWB Linux daemon + CLI.
 //
-// Subcommands: status | scan | connect | version.
-// connect --host/--key default to the config file values.
+// Subcommands: status | scan | connect | serve | version.
+// connect --host/--key default to the config file values; serve listens
+// with the server key (PowerToys uses one shared key: set ServerKey to it).
 package main
 
 import (
@@ -103,6 +104,43 @@ func cmdConnect(args []string) int {
 	return 0
 }
 
+func cmdServe(args []string) int {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "serve: load config: %v\n", err)
+		return 1
+	}
+	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+	key := fs.String("key", cfg.ServerKey, "security key for inbound (must match PowerToys key)")
+	proto := fs.String("protocol", string(cfg.ServerProtocol), "protocol: current|legacy")
+	name := fs.String("name", selfName(cfg), "our machine name (type it into the PowerToys matrix)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *key == "" {
+		fmt.Fprintln(os.Stderr, "serve: --key required (or set serverKey in config)")
+		return 2
+	}
+	ver := parseProto(*proto)
+	if ver == protocol.ProtoAuto {
+		ver = protocol.ProtoCurrent
+	}
+	log := util.NewLogger("mwb")
+	s := mwbnet.NewServer(log, cfg.MessagePort, cfg.ClipboardPort, *key, *name, ver)
+	if err := s.Listen(); err != nil {
+		fmt.Fprintf(os.Stderr, "serve: %v\n", err)
+		return 1
+	}
+	defer s.Stop()
+	fmt.Printf("serving as %q via %s on %v (clip %v); Ctrl-C to stop\n",
+		*name, ver, s.MsgAddr(), s.ClipAddr())
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	<-sig
+	fmt.Println("stopped")
+	return 0
+}
+
 func parseProto(s string) protocol.ProtocolVersion {
 	switch protocol.ProtocolVersion(strings.ToLower(s)) {
 	case protocol.ProtoCurrent, protocol.ProtoLegacy:
@@ -113,8 +151,9 @@ func parseProto(s string) protocol.ProtocolVersion {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: mwb-client <status|scan|connect|version> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: mwb-client <status|scan|connect|serve|version> [flags]")
 	fmt.Fprintln(os.Stderr, "  connect --host NAME --key KEY [--protocol auto|current|legacy]")
+	fmt.Fprintln(os.Stderr, "  serve --key KEY [--protocol current|legacy] [--name NAME]")
 }
 
 func main() {
@@ -129,6 +168,8 @@ func main() {
 		code = cmdScan()
 	case "connect":
 		code = cmdConnect(os.Args[2:])
+	case "serve":
+		code = cmdServe(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println(Version)
 	default:
