@@ -39,8 +39,14 @@ const (
 	PtHeartbeatExL2        PackageType = 52
 	PtHeartbeatExL3        PackageType = 53
 	PtClipboard            PackageType = 69
-	PtClipboardDataEndFast PackageType = 76 // fast-path terminator (in-band)
-	PtClipboardDataEnd     PackageType = 77 // secondary-socket terminator
+	PtClipboardDragDrop    PackageType = 70
+	PtClipboardDragDropEnd PackageType = 71
+	PtExplorerDragDrop     PackageType = 72
+	PtClipboardCapture     PackageType = 73
+	PtCaptureScreenCommand PackageType = 74
+	PtClipboardDragDropOp  PackageType = 75
+	PtClipboardDataEnd     PackageType = 76 // fast-path terminator (in-band)
+	PtMachineSwitched      PackageType = 77
 	PtClipboardAsk         PackageType = 78
 	PtClipboardPush        PackageType = 79
 	PtNextMachine          PackageType = 121
@@ -51,17 +57,19 @@ const (
 	PtHandshake            PackageType = 126
 	PtHandshakeAck         PackageType = 127
 	PtMatrix               PackageType = 128 // base; OR with MatrixFlags
-	PtMachineSwitched      PackageType = 129
 )
 
 // IsExtended reports whether a package type uses the 64-byte form.
+// Mirrors DATA.IsBigPackage: Hello/Awake/Heartbeat(-ex)/Handshake(-Ack)/
+// Clipboard(-family fast path)/Matrix carry the 32B MachineName tail;
+// drag-drop (70-75), MachineSwitched (77) and the input packets do not.
 func (t PackageType) IsExtended() bool {
 	base := byte(t) &^ 0x06 // strip MatrixSwapFlag(2)|MatrixTwoRowFlag(4)
 	switch PackageType(base) {
 	case PtHello, PtHeartbeat, PtAwake,
 		PtHeartbeatEx,
 		PtClipboard, PtClipboardAsk, PtClipboardPush,
-		PtClipboardText, PtClipboardImage,
+		PtClipboardText, PtClipboardImage, PtClipboardDataEnd,
 		PtHandshake, PtHandshakeAck, PtMatrix:
 		return true
 	}

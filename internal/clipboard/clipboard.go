@@ -2,8 +2,8 @@
 //
 // Fast path (<1MB): Deflate-compress text, split into 48B chunks carried in
 // bytes 16..63 of ClipboardText(124)/ClipboardImage(125) packets, terminated
-// by ClipboardDataEnd (76 in-band / 77 secondary). Receiver concatenates the
-// trailing 48B of each packet until the terminator.
+// by ClipboardDataEnd (76, in-band on the message channel). Receiver
+// concatenates the trailing 48B of each packet until the terminator.
 //
 // Pull path (>1MB / files): Clipboard(69) notify → ClipboardAsk(78) →
 // secondary TCP to 15100 + Clipboard ShakeHand (header+noise+Push header).
@@ -13,8 +13,10 @@ package clipboard
 import (
 	"bytes"
 	"compress/flate"
+	"encoding/binary"
 	"fmt"
 	"io"
+	"unicode/utf16"
 
 	"github.com/xaxys/mwb-client-linux/internal/protocol"
 )
@@ -25,23 +27,13 @@ const MaxInstantBytes = 1 << 20 // 1MB
 // ChunkSize is DATA_SIZE: payload bytes per packet (offsets 16..63).
 const ChunkSize = 48
 
-// CompressText deflates text before chunking (DeflateStream parity).
+// CompressText deflates text before chunking. The bytes are UTF-16LE
+// (GetBytesU parity: .NET Encoding.Unicode), NOT UTF-8.
 func CompressText(s string) ([]byte, error) {
-	var buf bytes.Buffer
-	w, err := flate.NewWriter(&buf, flate.DefaultCompression)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := w.Write([]byte(s)); err != nil {
-		return nil, err
-	}
-	if err := w.Close(); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return compressBytes(encodeUTF16LE(s))
 }
 
-// DecompressText inflates a fast-path text payload.
+// DecompressText inflates a fast-path text payload back to UTF-16LE text.
 func DecompressText(b []byte) (string, error) {
 	r := flate.NewReader(bytes.NewReader(b))
 	defer r.Close()
@@ -49,7 +41,44 @@ func DecompressText(b []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return string(out), nil
+	return decodeUTF16LE(out)
+}
+
+// encodeUTF16LE renders s as UTF-16LE bytes without BOM.
+func encodeUTF16LE(s string) []byte {
+	u := utf16.Encode([]rune(s))
+	out := make([]byte, len(u)*2)
+	for i, v := range u {
+		binary.LittleEndian.PutUint16(out[i*2:], v)
+	}
+	return out
+}
+
+// decodeUTF16LE parses UTF-16LE bytes (odd tail byte dropped).
+func decodeUTF16LE(b []byte) (string, error) {
+	if len(b)%2 == 1 {
+		b = b[:len(b)-1]
+	}
+	u := make([]uint16, len(b)/2)
+	for i := range u {
+		u[i] = binary.LittleEndian.Uint16(b[i*2:])
+	}
+	return string(utf16.Decode(u)), nil
+}
+
+func compressBytes(raw []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	w, err := flate.NewWriter(&buf, flate.DefaultCompression)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := w.Write(raw); err != nil {
+		return nil, err
+	}
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // EncodeFastPath splits compressed bytes into 48B-chunk packets.
@@ -72,7 +101,7 @@ func EncodeFastPath(typ protocol.PackageType, data []byte, src, des uint32, star
 		id++
 		out = append(out, p)
 	}
-	term := &protocol.Packet{Type: protocol.PtClipboardDataEndFast, ID: id, Src: src, Des: des}
+	term := &protocol.Packet{Type: protocol.PtClipboardDataEnd, ID: id, Src: src, Des: des}
 	out = append(out, term)
 	return out
 }
@@ -131,7 +160,7 @@ type Accumulator struct {
 	buf []byte
 }
 
-// Feed consumes a decoded packet; done=true on terminator (76/77).
+// Feed consumes a decoded packet; done=true on the 76 terminator.
 func (a *Accumulator) Feed(p *protocol.Packet, wire []byte) (done bool, err error) {
 	switch p.Type {
 	case protocol.PtClipboardText, protocol.PtClipboardImage:
@@ -139,23 +168,21 @@ func (a *Accumulator) Feed(p *protocol.Packet, wire []byte) (done bool, err erro
 			return false, fmt.Errorf("clipboard chunk must be 64B")
 		}
 		a.buf = append(a.buf, wire[16:64]...)
-		// Trim padding: only the final chunk is short; exact length unknown
-		// until terminator — but fast path pads final chunk with zeros/spaces.
-		// PowerToys pads with zeros (Zeros CBC padding parity); receiver knows
-		// total from... in practice trailing zeros of Deflate stream are NOT
-		// significant — inflate stops at stream end. We keep raw and let
-		// Bytes()/Text() trim trailing 0x00/0x20 added by the final chunk.
+		// The final chunk is zero-padded (Array.Clear parity); inflate and
+		// image decoders both stop at stream end and ignore the pad, so the
+		// raw buffer is kept and only trailing 0x00 is trimmed on Bytes().
+		// NOTE: never trim 0x20 — spaces can be real payload bytes.
 		return false, nil
-	case protocol.PtClipboardDataEndFast, protocol.PtClipboardDataEnd:
+	case protocol.PtClipboardDataEnd:
 		return true, nil
 	default:
 		return false, fmt.Errorf("not a clipboard packet: %d", byte(p.Type))
 	}
 }
 
-// Bytes returns accumulated raw bytes with final-chunk padding trimmed.
+// Bytes returns accumulated raw bytes with final-chunk zero padding trimmed.
 func (a *Accumulator) Bytes() []byte {
-	b := bytes.TrimRight(a.buf, "\x00 ")
+	b := bytes.TrimRight(a.buf, "\x00")
 	return append([]byte{}, b...)
 }
 

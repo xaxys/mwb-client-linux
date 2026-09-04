@@ -43,7 +43,7 @@ func TestTextFastPathRoundTrip(t *testing.T) {
 		}
 	}
 	// terminator
-	term := &protocol.Packet{Type: protocol.PtClipboardDataEndFast, ID: id, Src: 1, Des: 2}
+	term := &protocol.Packet{Type: protocol.PtClipboardDataEnd, ID: id, Src: 1, Des: 2}
 	tw, _ := term.Encode(magic)
 	tp, _ := protocol.Decode(tw, magic)
 	done, err := acc.Feed(tp, tw)
