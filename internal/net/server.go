@@ -33,6 +33,12 @@ type Server struct {
 	matrix   protocol.Matrix
 	stopCh   chan struct{}
 	stopOnce sync.Once
+
+	// OnClipboardConn, when set, owns validated 15100 legs (the daemon
+	// wires the clipboard Manager Serve path here). Otherwise legs are
+	// staged under "clip:"+name. Args: peer name, leg, peerPush (peer
+	// sent Push=79 and will send payload), peer post-action.
+	OnClipboardConn func(peer string, sc *mwbcrypto.SecureConn, peerPush bool, postAction int32)
 }
 
 // legEntry is one peer leg; outbound marks legs we dialed (mesh parity:
@@ -162,10 +168,15 @@ func (s *Server) handleClipboardLeg(sc *mwbcrypto.SecureConn, magic uint32) {
 	name := p.MachineName
 	s.mu.Lock()
 	_, hasLeg := s.legs[name]
+	cb := s.OnClipboardConn
 	s.mu.Unlock()
 	if name == "" || s.pool.IDOf(name) == 0 || !hasLeg {
 		s.log.Warnf("clipboard leg from unknown %q rejected (no message leg)", name)
 		sc.Close()
+		return
+	}
+	if cb != nil {
+		cb(name, sc, p.Type == protocol.PtClipboardPush, p.GetPostAction())
 		return
 	}
 	s.mu.Lock()

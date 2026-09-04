@@ -152,5 +152,10 @@ func (s *SecureConn) SetReadDeadline(t time.Time) error {
 	return s.conn.SetReadDeadline(t)
 }
 
+// SetWriteDeadline passthrough (bounds large secondary transfers).
+func (s *SecureConn) SetWriteDeadline(t time.Time) error {
+	return s.conn.SetWriteDeadline(t)
+}
+
 // RemoteAddr passthrough.
 func (s *SecureConn) RemoteAddr() net.Addr { return s.conn.RemoteAddr() }
