@@ -51,24 +51,29 @@ func runStack(s *mwbnet.Server, cfg config.Config, selfName string, key string, 
 			h.OnNextMachine(x, y)
 			go pullOnReturn(s, mgr, byName, cfg, selfName, self, key, log)
 		},
-		OnKey: func(vk, flags int32, src uint32) {
-			if h.Current() != self {
+		OnKey: func(vk, flags int32, src, des uint32) {
+			if h.Current() != self || !forUs(des, self) {
 				return
 			}
-			if err := be.Inject(input.Event{Kind: input.KindKey, VK: int(vk), KeyDown: flags == protocol.KeyFlagDown}); err != nil {
+			if err := be.Inject(input.Event{Kind: input.KindKey, VK: int(vk), KeyDown: flags&protocol.KeyFlagUp == 0}); err != nil {
 				log.Warnf("inject key: %v", err)
 			}
 		},
-		OnMouse: func(mm protocol.MouseEvent, src uint32) {
-			if h.Current() != self {
+		OnMouse: func(mm protocol.MouseEvent, src, des uint32) {
+			if h.Current() != self || !forUs(des, self) {
+				return
+			}
+			flag, kind, ok := input.MouseFlagFromWM(uint32(mm.Flags))
+			if !ok {
+				log.Warnf("unknown mouse wm flag %#x", uint32(mm.Flags))
 				return
 			}
 			var ev input.Event
-			switch {
-			case mm.Flags&0x0800 != 0:
+			switch kind {
+			case input.WMWheel:
 				ev = input.Event{Kind: input.KindMouseWheel, Wheel: int(mm.WheelDelta)}
-			case mm.Flags != 0:
-				ev = input.Event{Kind: input.KindMouseButton, MouseFlag: mm.Flags}
+			case input.WMButton:
+				ev = input.Event{Kind: input.KindMouseButton, MouseFlag: flag}
 			default:
 				m := mm
 				if m.IsRelative() {
@@ -191,6 +196,11 @@ func protoPinned(cfg config.Config) protocol.ProtocolVersion {
 		return protocol.ProtoLegacy
 	}
 	return protocol.ProtoCurrent
+}
+
+// forUs mirrors the Receiver Des gate: addressed to us or broadcast.
+func forUs(des, self uint32) bool {
+	return des == self || des == protocol.IDAll
 }
 
 // reverseHosts builds name → IP from the known-hosts table.

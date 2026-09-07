@@ -13,6 +13,7 @@ package input
 import (
 	"sync"
 
+	"github.com/xaxys/mwb-client-linux/internal/protocol"
 	"github.com/xaxys/mwb-client-linux/internal/util"
 )
 
@@ -97,6 +98,59 @@ func EntryForJump(x, y int, from util.Rect, edge Edge, jump int) (entryX, entryY
 	}
 	_ = jump
 	return entryX, entryY
+}
+
+// MouseWMKind classifies a wire WM_* mouse flag.
+type MouseWMKind int
+
+const (
+	WMMove MouseWMKind = iota
+	WMButton
+	WMWheel
+)
+
+// MouseFlagFromWM maps a wire WM_* dwFlags to the internal MOUSEEVENTF
+// Event flag. Returns kind+ok; wheel deltas ride the packet, not the flag.
+func MouseFlagFromWM(wm uint32) (flag int32, kind MouseWMKind, ok bool) {
+	switch wm {
+	case protocol.WMMouseMove:
+		return 0, WMMove, true
+	case protocol.WMLButtonDown:
+		return MouseLeftDown, WMButton, true
+	case protocol.WMLButtonUp:
+		return MouseLeftUp, WMButton, true
+	case protocol.WMRButtonDown:
+		return MouseRightDown, WMButton, true
+	case protocol.WMRButtonUp:
+		return MouseRightUp, WMButton, true
+	case protocol.WMMButtonDown:
+		return MouseMiddleDown, WMButton, true
+	case protocol.WMMButtonUp:
+		return MouseMiddleUp, WMButton, true
+	case protocol.WMMouseWheel, protocol.WMMouseHWheel:
+		return MouseWheelFlag, WMWheel, true
+	}
+	return 0, WMMove, false
+}
+
+// MouseFlagToWM maps an internal MOUSEEVENTF button transition back to the
+// wire WM_* code for sending.
+func MouseFlagToWM(flag int32) (uint32, bool) {
+	switch flag {
+	case MouseLeftDown:
+		return protocol.WMLButtonDown, true
+	case MouseLeftUp:
+		return protocol.WMLButtonUp, true
+	case MouseRightDown:
+		return protocol.WMRButtonDown, true
+	case MouseRightUp:
+		return protocol.WMRButtonUp, true
+	case MouseMiddleDown:
+		return protocol.WMMButtonDown, true
+	case MouseMiddleUp:
+		return protocol.WMMButtonUp, true
+	}
+	return 0, false
 }
 
 // Switcher implements the Helper async handoff: the capture callback calls

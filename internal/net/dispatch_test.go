@@ -65,13 +65,13 @@ func (r *recordedCalls) handler() LegHandler {
 			r.mu.Unlock()
 			r.ping()
 		},
-		OnKey: func(vk, flags int32, src uint32) {
+		OnKey: func(vk, flags int32, src, des uint32) {
 			r.mu.Lock()
 			r.keys = append(r.keys, sentKey{vk, flags, src, 0})
 			r.mu.Unlock()
 			r.ping()
 		},
-		OnMouse: func(m protocol.MouseEvent, src uint32) {
+		OnMouse: func(m protocol.MouseEvent, src, des uint32) {
 			r.mu.Lock()
 			r.mice = append(r.mice, sentMouse{m, src, 0})
 			r.mu.Unlock()

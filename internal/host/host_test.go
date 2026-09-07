@@ -220,9 +220,24 @@ func TestHostSwitchAwayAndBack(t *testing.T) {
 	})
 	fs.mu.Lock()
 	mm := fs.mice[0]
+	nmice := len(fs.mice)
 	fs.mu.Unlock()
 	if !mm.m.IsRelative() {
 		t.Fatalf("mouse %+v not relative", mm.m)
+	}
+
+	// Button forwarding goes out as WM_* codes, not MOUSEEVENTF.
+	fb.emit(input.Event{Kind: input.KindMouseButton, MouseFlag: input.MouseLeftDown})
+	waitFor(t, "forwarded button", func() bool {
+		fs.mu.Lock()
+		defer fs.mu.Unlock()
+		return len(fs.mice) > nmice
+	})
+	fs.mu.Lock()
+	bm := fs.mice[len(fs.mice)-1]
+	fs.mu.Unlock()
+	if bm.m.Flags != 0x0201 {
+		t.Fatalf("button flags %#x want WM_LBUTTONDOWN", uint32(bm.m.Flags))
 	}
 
 	// Peer sends us back: show cursor and warp to entry.

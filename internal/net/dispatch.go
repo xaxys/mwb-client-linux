@@ -29,8 +29,8 @@ type LegHandler struct {
 	OnMatrix      func(m protocol.Matrix)
 	OnPresence    func(name string, id uint32, awake bool)
 	OnNextMachine func(entryX, entryY int, dest uint32)
-	OnKey         func(vk, flags int32, src uint32)
-	OnMouse       func(m protocol.MouseEvent, src uint32)
+	OnKey         func(vk, flags int32, src, des uint32)
+	OnMouse       func(m protocol.MouseEvent, src, des uint32)
 	OnHideMouse   func()
 	OnBeat        func(src uint32, name string, postAction int32)
 	OnAsk         func(src uint32, name string, postAction int32)
@@ -113,11 +113,11 @@ func (s *Server) handlePacket(sc *mwbcrypto.SecureConn, magic uint32, peer strin
 	case protocol.PtKeyboard:
 		k := p.GetKey()
 		if h.OnKey != nil {
-			h.OnKey(k.VK, k.Flags, p.Src)
+			h.OnKey(k.VK, k.Flags, p.Src, p.Des)
 		}
 	case protocol.PtMouse:
 		if h.OnMouse != nil {
-			h.OnMouse(p.GetMouse(), p.Src)
+			h.OnMouse(p.GetMouse(), p.Src, p.Des)
 		}
 	case protocol.PtHideMouse:
 		if h.OnHideMouse != nil {

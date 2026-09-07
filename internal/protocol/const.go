@@ -123,13 +123,28 @@ const (
 	CrossingWatchdog        = 5 * time.Second
 )
 
-// KEYBDDATA dwFlags (KEYEVENTF parity, see DATA.cs).
-// Releases (KEYUP and SYSKEYUP alike) carry KeyFlagUp; the sender must
-// sleep KeyUpThrottle (10ms) after each release.
+// KEYBDDATA dwFlags (LLKHF parity, see KEYBDDATA.cs / KBDLLHOOKSTRUCT:
+// up=0x80 release, extended=0x01; plain press is 0). Releases (KEYUP and
+// SYSKEYUP alike) carry KeyFlagUp; the sender must sleep KeyUpThrottle
+// (10ms) after each release.
 const (
 	KeyFlagDown     int32 = 0
 	KeyFlagExtended int32 = 0x0001
-	KeyFlagUp       int32 = 0x0002
+	KeyFlagUp       int32 = 0x0080
+)
+
+// Mouse dwFlags on the wire are WM_* message codes (see WMMouseMessage:
+// PowerToys packs the hook wParam, not MOUSEEVENTF).
+const (
+	WMMouseMove   uint32 = 0x0200
+	WMLButtonDown uint32 = 0x0201
+	WMLButtonUp   uint32 = 0x0202
+	WMRButtonDown uint32 = 0x0204
+	WMRButtonUp   uint32 = 0x0205
+	WMMButtonDown uint32 = 0x0207
+	WMMButtonUp   uint32 = 0x0208
+	WMMouseWheel  uint32 = 0x020A
+	WMMouseHWheel uint32 = 0x020E
 )
 
 // ProtocolVersion selects the wire encryption generation.

@@ -214,13 +214,17 @@ func (h *Host) forward(j fwdJob) {
 			Y: protocol.RelativeDelta(j.dy),
 		}, h.self, dest)
 	case input.KindMouseButton:
+		wm, ok := input.MouseFlagToWM(e.MouseFlag)
+		if !ok {
+			return
+		}
 		_ = h.send.SendMouse(protocol.MouseEvent{
 			X: protocol.RelativeDelta(0), Y: protocol.RelativeDelta(0),
-			Flags: e.MouseFlag,
+			Flags: int32(wm),
 		}, h.self, dest)
 	case input.KindMouseWheel:
 		_ = h.send.SendMouse(protocol.MouseEvent{
-			WheelDelta: int32(e.Wheel), Flags: 0x0800,
+			WheelDelta: int32(e.Wheel), Flags: int32(protocol.WMMouseWheel),
 		}, h.self, dest)
 	}
 }
