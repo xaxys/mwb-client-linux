@@ -1,6 +1,7 @@
 package net
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"sync/atomic"
@@ -23,7 +24,24 @@ func tracePacket(dir string, p *protocol.Packet) {
 	if netDebugCount.Add(1) > 300 {
 		return
 	}
-	log.Printf("net-%s type=%d src=%d des=%d id=%d name=%q", dir, byte(p.Type), p.Src, p.Des, p.ID, p.MachineName)
+	log.Printf("net-%s type=%d src=%d des=%d id=%d name=%q%s", dir, byte(p.Type), p.Src, p.Des, p.ID, p.MachineName, packetDetail(p))
+}
+
+// packetDetail adds payload summary for input types (buttons share type
+// 123 with moves, so flag/coords are needed to tell them apart).
+func packetDetail(p *protocol.Packet) string {
+	switch p.Type {
+	case protocol.PtMouse:
+		m := p.GetMouse()
+		return fmt.Sprintf(" mouse=(%d,%d,%d,%#x)", m.X, m.Y, m.WheelDelta, uint32(m.Flags))
+	case protocol.PtKeyboard:
+		k := p.GetKey()
+		return fmt.Sprintf(" key=(vk=%d,flags=%#x)", k.VK, uint32(k.Flags))
+	case protocol.PtNextMachine:
+		x, y, dest := p.GetNextMachine()
+		return fmt.Sprintf(" next=(%d,%d,%d)", x, y, dest)
+	}
+	return ""
 }
 
 // LegHandler receives decoded inbound-leg events. Every field is optional;
