@@ -16,7 +16,11 @@ func tracePacket(dir string, p *protocol.Packet) {
 	if os.Getenv("MWB_DEBUG_NET") == "" {
 		return
 	}
-	if netDebugCount.Add(1) > 60 {
+	// Steady-state heartbeats would burn the budget in a minute.
+	if p.Type == protocol.PtHeartbeat || p.Type == protocol.PtAwake {
+		return
+	}
+	if netDebugCount.Add(1) > 300 {
 		return
 	}
 	log.Printf("net-%s type=%d src=%d des=%d id=%d name=%q", dir, byte(p.Type), p.Src, p.Des, p.ID, p.MachineName)
