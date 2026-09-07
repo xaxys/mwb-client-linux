@@ -183,6 +183,50 @@ func TestHostRelativeEdge(t *testing.T) {
 	}
 }
 
+func TestHostClampNoPhantom(t *testing.T) {
+	fb := &fakeBackend{}
+	fs := newFakeSender()
+	// No wrap: only the true right edge leads anywhere.
+	m := protocol.Matrix{Slots: [4]string{"LINUX", "WINDOWS", "", ""}}
+	h := New(fb, fs, util.NewLogger("test"), func() uint32 { return 1 }, "LINUX", func() protocol.Matrix { return m })
+	stop := make(chan struct{})
+	done := make(chan error, 1)
+	go func() { done <- h.Run(stop) }()
+	defer func() { close(stop); <-done }()
+
+	waitFor(t, "capture started", func() bool {
+		fb.mu.Lock()
+		defer fb.mu.Unlock()
+		return fb.started
+	})
+	// Deep negative drift clamps into the corner, not beyond it: the
+	// left edge has no neighbor here, so nothing fires.
+	fb.emit(input.Event{Kind: input.KindMouseMove, X: -5000, Y: 500, Rel: true})
+	time.Sleep(150 * time.Millisecond)
+	fs.mu.Lock()
+	n := len(fs.nexts)
+	fs.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("%d phantom switches from negative drift", n)
+	}
+	// Real travel to the right edge fires with a left-side entry
+	// (entryX=0), never the wrap-mirrored 65535.
+	for i := 0; i < 5; i++ {
+		fb.emit(input.Event{Kind: input.KindMouseMove, X: 500, Y: 0, Rel: true})
+	}
+	waitFor(t, "clamped nextmachine", func() bool {
+		fs.mu.Lock()
+		defer fs.mu.Unlock()
+		return len(fs.nexts) > 0
+	})
+	fs.mu.Lock()
+	nm := fs.nexts[0]
+	fs.mu.Unlock()
+	if nm.dest != 2 || nm.entryX != 0 {
+		t.Fatalf("nextmachine %+v want dest2 entryX0", nm)
+	}
+}
+
 func TestHostSwitchAwayAndBack(t *testing.T) {
 	fb := &fakeBackend{}
 	fs := newFakeSender()

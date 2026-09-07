@@ -78,22 +78,10 @@ func TestTrustBurstAndDialBack(t *testing.T) {
 		s.trustPeer(inbound, "WINDOWS", "127.0.0.1", magic)
 	}()
 
-	// Presence: Heartbeat_ex from slot 1 as LINUX.
+	// Fresh-adopted (guessed) layouts never broadcast: presence only.
 	p := readOne(t, peerSC, magic, true)
 	if p.Type != protocol.PtHeartbeatEx || p.Src != 1 || p.MachineName != "LINUX" {
 		t.Fatalf("presence %+v", p)
-	}
-	// Matrix burst: Src 1..4, adopted [LINUX, WINDOWS].
-	var slots [4]string
-	for i := 0; i < 4; i++ {
-		p = readOne(t, peerSC, magic, true)
-		if p.Src != uint32(i+1) {
-			t.Fatalf("burst %d Src=%d", i, p.Src)
-		}
-		slots[i] = p.MachineName
-	}
-	if slots[0] != "LINUX" || slots[1] != "WINDOWS" {
-		t.Fatalf("burst slots %q", slots)
 	}
 	if got := s.pool.IDOf("WINDOWS"); got != 2 {
 		t.Fatalf("pool WINDOWS=%d want 2", got)
@@ -109,6 +97,53 @@ func TestTrustBurstAndDialBack(t *testing.T) {
 		t.Fatal("dial-back never arrived")
 	}
 	waitLegs(t, s, "WINDOWS#out")
+
+	// Peer shares its user-truth matrix over the first leg (consumed by
+	// the serving reader); the next trust then bursts it back.
+	msender := NewSender(2000)
+	mt := protocol.Matrix{Slots: [4]string{"LINUX", "WINDOWS", "", ""}, Wrap: true}
+	for i := 0; i < 4; i++ {
+		mp := &protocol.Packet{Type: mt.TypeByte(), ID: msender.Next(), Src: uint32(i + 1),
+			Des: protocol.IDAll, HasName: true, MachineName: mt.Slots[i]}
+		wire, _ := mp.Encode(magic)
+		if err := peerSC.WritePacket(wire); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		s.mu.Lock()
+		shared := !s.adopted
+		s.mu.Unlock()
+		if shared {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("merged matrix never cleared the adopted guess")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	inbound2, peerSC2 := loopbackPair(t, key)
+	defer inbound2.Close()
+	defer peerSC2.Close()
+	// Second trust serves its leg; deferred closes end it after the test.
+	go s.trustPeer(inbound2, "WINDOWS", "127.0.0.1", magic)
+	p2 := readOne(t, peerSC2, magic, true)
+	if p2.Type != protocol.PtHeartbeatEx {
+		t.Fatalf("second presence %+v", p2)
+	}
+	var slots [4]string
+	for i := 0; i < 4; i++ {
+		p2 = readOne(t, peerSC2, magic, true)
+		if p2.Src != uint32(i+1) {
+			t.Fatalf("burst %d Src=%d", i, p2.Src)
+		}
+		slots[i] = p2.MachineName
+	}
+	if slots[0] != "LINUX" || slots[1] != "WINDOWS" {
+		t.Fatalf("burst slots %q", slots)
+	}
 }
 
 func TestClipboardLegValidation(t *testing.T) {
@@ -129,7 +164,7 @@ func TestClipboardLegValidation(t *testing.T) {
 		return c
 	}
 
-	// Message leg as WINDOWS (drains presence + burst).
+	// Message leg as WINDOWS (fresh adopt: presence only, no burst).
 	mc := dial(msgPort)
 	msc, err := mwbcrypto.HandshakeCurrent(mc, key)
 	if err != nil {
@@ -139,10 +174,8 @@ func TestClipboardLegValidation(t *testing.T) {
 	if _, err := ClientHandshake(msc, magic, sender, 2, "WINDOWS"); err != nil {
 		t.Fatalf("handshake: %v", err)
 	}
-	for i := 0; i < 5; i++ {
-		if _, err := msc.ReadPacket(true); err != nil {
-			t.Fatalf("burst drain: %v", err)
-		}
+	if _, err := msc.ReadPacket(true); err != nil {
+		t.Fatalf("presence drain: %v", err)
 	}
 
 	push := func(name string) *mwbcrypto.SecureConn {

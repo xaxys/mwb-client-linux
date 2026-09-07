@@ -130,6 +130,25 @@ func (h *Host) onCapture(e input.Event) {
 		}
 		h.hasPos = true
 		b := h.bounds
+		// Clamp to the desktop: the real cursor cannot leave it while
+		// local, so unclamped drift would fire phantom wrap edges from
+		// deep negative territory (always landing top-right).
+		if b.Right > b.Left {
+			if h.px < b.Left {
+				h.px = b.Left
+			}
+			if h.px > b.Right-1 {
+				h.px = b.Right - 1
+			}
+		}
+		if b.Bottom > b.Top {
+			if h.py < b.Top {
+				h.py = b.Top
+			}
+			if h.py > b.Bottom-1 {
+				h.py = b.Bottom - 1
+			}
+		}
 		cx, cy := h.px, h.py
 		cur := h.current.Load()
 		self := h.getSelf()

@@ -51,10 +51,13 @@ func (s *Server) broadcast(p *protocol.Packet) error {
 func (s *Server) NextID() int32 { return s.sender.Next() }
 
 // SetMatrix replaces the layout (daemon-configured arrangement wins over
-// adopted discovery).
+// adopted discovery) and marks it shareable.
 func (s *Server) SetMatrix(m protocol.Matrix) {
 	s.mu.Lock()
 	s.matrix = m
+	if !m.IsEmpty() {
+		s.adopted = false
+	}
 	s.mu.Unlock()
 }
 

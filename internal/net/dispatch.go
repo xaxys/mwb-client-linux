@@ -151,6 +151,8 @@ func (s *Server) handlePacket(sc *mwbcrypto.SecureConn, magic uint32, peer strin
 
 // mergeMatrix folds one matrix slot packet into the server layout; the
 // Src==4 packet carries the authoritative flags and commits the view.
+// Any merged layout is user truth (clears the adopted guess) and may be
+// shared with later joiners.
 func (s *Server) mergeMatrix(p *protocol.Packet, h LegHandler) {
 	s.mu.Lock()
 	if p.Src >= 1 && p.Src <= protocol.MaxMachine {
@@ -159,6 +161,9 @@ func (s *Server) mergeMatrix(p *protocol.Packet, h LegHandler) {
 	if p.Src == protocol.MaxMachine {
 		wrap, twoRow := protocol.ParseFlags(p.Type)
 		s.matrix.Wrap, s.matrix.TwoRow = wrap, twoRow
+	}
+	if !s.matrix.IsEmpty() {
+		s.adopted = false
 	}
 	m := s.matrix
 	s.mu.Unlock()

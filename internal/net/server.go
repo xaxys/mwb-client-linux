@@ -26,12 +26,16 @@ type Server struct {
 	version  protocol.ProtocolVersion
 	self     string
 
-	mu       sync.Mutex
-	msgLn    net.Listener
-	clipLn   net.Listener
-	legs     map[string]*legEntry
-	dialing  map[string]bool
-	matrix   protocol.Matrix
+	mu      sync.Mutex
+	msgLn   net.Listener
+	clipLn  net.Listener
+	legs    map[string]*legEntry
+	dialing map[string]bool
+	matrix  protocol.Matrix
+	// adopted marks a guessed layout (first-peer AdoptFresh): guesses are
+	// never broadcast, or every reconnect would clobber the peer UI that
+	// holds user truth. Configured and peer-merged layouts do broadcast.
+	adopted  bool
 	stopCh   chan struct{}
 	stopOnce sync.Once
 
@@ -202,10 +206,12 @@ func (s *Server) handleClipboardLeg(sc *mwbcrypto.SecureConn, magic uint32) {
 func (s *Server) trustPeer(sc *mwbcrypto.SecureConn, peer, peerIP string, magic uint32) {
 	s.mu.Lock()
 	s.legs[peer] = &legEntry{sc: sc}
-	// Anti-clobber: fresh server adopts [self, peer] before broadcasting.
+	// Anti-clobber: fresh server adopts [self, peer] (a guess, never
+	// broadcast) so pool/dial-back resolve immediately.
 	empty := s.matrix.IsEmpty()
 	if empty {
 		s.matrix = protocol.AdoptFresh(s.self, peer)
+		s.adopted = true
 	}
 	// Late joiner with a vacancy: take the first free slot (AddToMachinePool
 	// parity) so pool/dial-back resolve immediately, before matrix traffic.
@@ -228,16 +234,23 @@ func (s *Server) trustPeer(sc *mwbcrypto.SecureConn, peer, peerIP string, magic 
 		s.pool.Learn(peer, slot)
 	}
 	s.log.Infof("trusted peer %q (fresh-adopt=%v slot=%d)", peer, empty, slot)
-	// Presence + matrix burst so the newcomer learns name/layout immediately.
+	// Presence always; matrix burst only for non-guessed layouts (a guess
+	// would clobber the peer UI holding user truth on every reconnect).
 	if err := s.sendPresence(sc, magic, selfSlot); err != nil {
 		s.dropLeg(peer)
 		sc.Close()
 		return
 	}
-	if err := s.sendMatrixBurst(sc, magic, m); err != nil {
-		s.dropLeg(peer)
-		sc.Close()
-		return
+	s.mu.Lock()
+	share := !s.matrix.IsEmpty() && !s.adopted
+	mm := s.matrix
+	s.mu.Unlock()
+	if share {
+		if err := s.sendMatrixBurst(sc, magic, mm); err != nil {
+			s.dropLeg(peer)
+			sc.Close()
+			return
+		}
 	}
 	// Mesh dial-back (UpdateTCPClients parity): one outbound leg per peer,
 	// attempted once; the inbound leg already carries traffic if it fails.
