@@ -31,6 +31,12 @@ var _ Sender = (*mwbnet.Client)(nil)
 // modifierVKs are released on every switch to avoid stuck modifiers.
 var modifierVKs = []int32{0x10, 0x11, 0x12, 0x5B}
 
+// rearmInset is how far inside the edges the cursor must travel before a
+// fired edge may fire again. Without it, landing on an edge (entry warps
+// land exactly there) refires instantly and the two machines ping-pong the
+// switch forever.
+const rearmInset = 16
+
 // fwdJob is one captured event to forward while switched away. For motion,
 // dx/dy are pixel deltas computed on the capture path (the tracker always
 // holds the newest seen position).
@@ -53,6 +59,7 @@ type Host struct {
 	mu        sync.Mutex
 	getMatrix func() protocol.Matrix
 	pushed    protocol.Matrix
+	armed     bool
 	bounds    util.Rect
 	current   atomic.Uint32 // machine holding the focus; starts at self
 	px, py    int
@@ -64,7 +71,7 @@ type Host struct {
 // rebroadcast and merges can renumber slots).
 func New(backend input.Backend, send Sender, log *util.Logger, selfID func() uint32, name string, matrix func() protocol.Matrix) *Host {
 	h := &Host{backend: backend, send: send, log: log, getSelf: selfID, name: name,
-		switcher: input.NewSwitcher(), fwdCh: make(chan fwdJob, 64), getMatrix: matrix}
+		switcher: input.NewSwitcher(), fwdCh: make(chan fwdJob, 64), getMatrix: matrix, armed: true}
 	h.current.Store(selfID())
 	return h
 }
@@ -150,11 +157,24 @@ func (h *Host) onCapture(e input.Event) {
 			}
 		}
 		cx, cy := h.px, h.py
+		// Hysteresis: a fired edge re-arms only after the cursor dives
+		// back inside (entry warps land on edges and must not refire).
+		if !h.armed {
+			if cx > b.Left+rearmInset && cx < b.Right-1-rearmInset &&
+				cy > b.Top+rearmInset && cy < b.Bottom-1-rearmInset {
+				h.armed = true
+			}
+		}
 		cur := h.current.Load()
 		self := h.getSelf()
 		h.mu.Unlock()
 		if cur != self {
 			h.enqueue(fwdJob{e: e, dx: dx, dy: dy, hasDelta: had})
+			return
+		}
+		// NOTE: lock is held here; read h.armed directly (isArmed would
+		// self-deadlock).
+		if !h.armed {
 			return
 		}
 		edge := input.DetectEdge(cx, cy, b, protocol.SkipPixels)
@@ -167,6 +187,7 @@ func (h *Host) onCapture(e input.Event) {
 			return
 		}
 		ex, ey := input.EntryForJump(cx, cy, b, edge, protocol.JumpPixels)
+		h.disarm()
 		h.switcher.RequestSwitch(input.SwitchRequest{Edge: edge, EntryX: ex, EntryY: ey, DestID: dest})
 		return
 	}
@@ -198,6 +219,21 @@ func toDir(e input.Edge) protocol.Direction {
 		return protocol.DirBottom
 	}
 	return protocol.DirNone
+}
+
+// isArmed/disarm guard the edge hysteresis (mutex-protected; the hot
+// path already holds the lock at call sites, so these lock internally
+// only when called from outside it).
+func (h *Host) isArmed() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.armed
+}
+
+func (h *Host) disarm() {
+	h.mu.Lock()
+	h.armed = false
+	h.mu.Unlock()
 }
 
 // slotOccupied reports whether slot holds a machine name.

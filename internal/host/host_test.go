@@ -351,3 +351,42 @@ func TestHostSwitchAwayAndBack(t *testing.T) {
 		t.Fatalf("tracker (%d,%d,%v) want ~(959,16)", px, py, hasPos)
 	}
 }
+
+func TestHostHysteresis(t *testing.T) {
+	fb := &fakeBackend{}
+	fs := newFakeSender()
+	m := protocol.Matrix{Slots: [4]string{"LINUX", "WINDOWS", "", ""}}
+	h := New(fb, fs, util.NewLogger("test"), func() uint32 { return 1 }, "LINUX", func() protocol.Matrix { return m })
+	stop := make(chan struct{})
+	done := make(chan error, 1)
+	go func() { done <- h.Run(stop) }()
+	defer func() { close(stop); <-done }()
+
+	waitFor(t, "capture started", func() bool {
+		fb.mu.Lock()
+		defer fb.mu.Unlock()
+		return fb.started
+	})
+	count := func() int {
+		fs.mu.Lock()
+		defer fs.mu.Unlock()
+		return len(fs.nexts)
+	}
+	// Absolute move to the right edge fires once.
+	fb.emit(input.Event{Kind: input.KindMouseMove, X: 1919, Y: 540})
+	waitFor(t, "first fire", func() bool { return count() == 1 })
+	// More edge moves must NOT refire (entry warps land on edges).
+	for i := 0; i < 3; i++ {
+		fb.emit(input.Event{Kind: input.KindMouseMove, X: 1919, Y: 540})
+	}
+	time.Sleep(150 * time.Millisecond)
+	if n := count(); n != 1 {
+		t.Fatalf("refired at edge: %d", n)
+	}
+	// Come back, dive inside to re-arm, edge fires again.
+	h.OnNextMachine(0, 32767)
+	fb.emit(input.Event{Kind: input.KindMouseMove, X: 960, Y: 540})
+	time.Sleep(100 * time.Millisecond)
+	fb.emit(input.Event{Kind: input.KindMouseMove, X: 1919, Y: 540})
+	waitFor(t, "second fire", func() bool { return count() == 2 })
+}
