@@ -155,7 +155,7 @@ func TestHostRelativeEdge(t *testing.T) {
 	fb := &fakeBackend{}
 	fs := newFakeSender()
 	m := protocol.Matrix{Slots: [4]string{"LINUX", "WINDOWS", "", ""}}
-	h := New(fb, fs, util.NewLogger("test"), 1, "LINUX", func() protocol.Matrix { return m })
+	h := New(fb, fs, util.NewLogger("test"), func() uint32 { return 1 }, "LINUX", func() protocol.Matrix { return m })
 	stop := make(chan struct{})
 	done := make(chan error, 1)
 	go func() { done <- h.Run(stop) }()
@@ -187,7 +187,7 @@ func TestHostSwitchAwayAndBack(t *testing.T) {
 	fb := &fakeBackend{}
 	fs := newFakeSender()
 	m := protocol.Matrix{Slots: [4]string{"LINUX", "WINDOWS", "", ""}}
-	h := New(fb, fs, util.NewLogger("test"), 1, "LINUX", func() protocol.Matrix { return m })
+	h := New(fb, fs, util.NewLogger("test"), func() uint32 { return 1 }, "LINUX", func() protocol.Matrix { return m })
 	stop := make(chan struct{})
 	done := make(chan error, 1)
 	go func() { done <- h.Run(stop) }()

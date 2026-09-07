@@ -28,27 +28,30 @@ func runStack(s *mwbnet.Server, cfg config.Config, selfName string, key string, 
 	defer be.Close()
 	fmt.Printf("input: %s\n", be.Name())
 
-	self, _ := s.Layout()
+	// selfID stays live: merges can renumber our slot at any time.
+	selfID := func() uint32 {
+		self, _ := s.Layout()
+		return self
+	}
 	if m, ok := configMatrix(cfg); ok {
 		s.SetMatrix(m)
-		self, _ = s.Layout()
 		log.Infof("layout: configured %+v", m.Slots)
 	}
 	mgr := clipboard.NewManager(selfName, "", log,
 		func() {
-			if err := s.SendBeat(self, selfName, int32(clipboard.PostOther)); err != nil {
+			if err := s.SendBeat(selfID(), selfName, int32(clipboard.PostOther)); err != nil {
 				log.Warnf("beat: %v", err)
 			}
 		},
 		func(dest uint32) {
-			if err := s.SendAsk(dest, self, selfName, int32(clipboard.PostOther)); err != nil {
+			if err := s.SendAsk(dest, selfID(), selfName, int32(clipboard.PostOther)); err != nil {
 				log.Warnf("ask: %v", err)
 			}
 		},
 	)
 	byName := reverseHosts(cfg.KnownHosts)
 
-	h := host.New(be, s, log, self, selfName, func() protocol.Matrix {
+	h := host.New(be, s, log, selfID, selfName, func() protocol.Matrix {
 		_, m := s.Layout()
 		return m
 	})
@@ -57,10 +60,10 @@ func runStack(s *mwbnet.Server, cfg config.Config, selfName string, key string, 
 		OnNextMachine: func(x, y int, dest uint32) {
 			log.Infof("switch: focus back entry=(%d,%d) dest=%d", x, y, dest)
 			h.OnNextMachine(x, y)
-			go pullOnReturn(s, mgr, byName, cfg, selfName, self, key, log)
+			go pullOnReturn(s, mgr, byName, cfg, selfName, selfID(), key, log)
 		},
 		OnKey: func(vk, flags int32, src, des uint32) {
-			if h.Current() != self || !forUs(des, self) {
+			if h.Current() != selfID() || !forUs(des, selfID()) {
 				return
 			}
 			if err := be.Inject(input.Event{Kind: input.KindKey, VK: int(vk), KeyDown: flags&protocol.KeyFlagUp == 0}); err != nil {
@@ -68,7 +71,7 @@ func runStack(s *mwbnet.Server, cfg config.Config, selfName string, key string, 
 			}
 		},
 		OnMouse: func(mm protocol.MouseEvent, src, des uint32) {
-			if h.Current() != self || !forUs(des, self) {
+			if h.Current() != selfID() || !forUs(des, selfID()) {
 				return
 			}
 			flag, kind, ok := input.MouseFlagFromWM(uint32(mm.Flags))
@@ -118,7 +121,7 @@ func runStack(s *mwbnet.Server, cfg config.Config, selfName string, key string, 
 				log.Warnf("ask from %q: no known IP", name)
 				return
 			}
-			go pushTo(s, mgr, ip, cfg.ClipboardPort, key, selfName, self, log)
+			go pushTo(s, mgr, ip, cfg.ClipboardPort, key, selfName, selfID(), log)
 		},
 	}
 	s.OnClipboardConn = func(peer string, sc *mwbcrypto.SecureConn, peerPush bool, pa int32) {
@@ -127,7 +130,7 @@ func runStack(s *mwbnet.Server, cfg config.Config, selfName string, key string, 
 		provide := func() (clipboard.TransferKind, string, []byte, bool) {
 			return mgr.Provide()
 		}
-		if err := clipboard.Serve(sc, magic, selfName, self, clipboard.PostAction(pa),
+		if err := clipboard.Serve(sc, magic, selfName, selfID(), clipboard.PostAction(pa),
 			s.NextID(), provide, mgr.Sink, "", 60*time.Second); err != nil {
 			log.Warnf("clipboard serve %q: %v", peer, err)
 		}

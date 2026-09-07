@@ -45,7 +45,7 @@ type Host struct {
 	backend  input.Backend
 	send     Sender
 	log      *util.Logger
-	self     uint32
+	getSelf  func() uint32
 	name     string
 	switcher *input.Switcher
 	fwdCh    chan fwdJob
@@ -59,12 +59,13 @@ type Host struct {
 	hasPos    bool
 }
 
-// New creates a Host. matrix provides the LIVE layout (called on every
-// edge hit — a snapshot goes stale because peers rarely rebroadcast).
-func New(backend input.Backend, send Sender, log *util.Logger, self uint32, name string, matrix func() protocol.Matrix) *Host {
-	h := &Host{backend: backend, send: send, log: log, self: self, name: name,
+// New creates a Host. matrix/selfID provide the LIVE topology and slot
+// (called on every edge hit — snapshots go stale because peers rarely
+// rebroadcast and merges can renumber slots).
+func New(backend input.Backend, send Sender, log *util.Logger, selfID func() uint32, name string, matrix func() protocol.Matrix) *Host {
+	h := &Host{backend: backend, send: send, log: log, getSelf: selfID, name: name,
 		switcher: input.NewSwitcher(), fwdCh: make(chan fwdJob, 64), getMatrix: matrix}
-	h.current.Store(self)
+	h.current.Store(selfID())
 	return h
 }
 
@@ -131,7 +132,7 @@ func (h *Host) onCapture(e input.Event) {
 		b := h.bounds
 		cx, cy := h.px, h.py
 		cur := h.current.Load()
-		self := h.self
+		self := h.getSelf()
 		h.mu.Unlock()
 		if cur != self {
 			h.enqueue(fwdJob{e: e, dx: dx, dy: dy, hasDelta: had})
@@ -152,7 +153,7 @@ func (h *Host) onCapture(e input.Event) {
 	}
 	// Keys/buttons/wheel only matter while switched away (local mode lets
 	// the backend re-inject them to the focused app).
-	if h.current.Load() != h.self {
+	if h.current.Load() != h.getSelf() {
 		h.enqueue(fwdJob{e: e})
 	}
 }
@@ -189,7 +190,7 @@ func slotOccupied(m protocol.Matrix, slot uint32) bool {
 // switch, hide locally, and start forwarding.
 func (h *Host) doSwitch(r input.SwitchRequest) {
 	m := h.layout()
-	self := h.self
+	self := h.getSelf()
 	dest := r.DestID
 	if dest == self || !slotOccupied(m, dest) {
 		// Layout changed mid-flight: recompute once before giving up.
@@ -221,7 +222,7 @@ func (h *Host) doSwitch(r input.SwitchRequest) {
 // forward ships one captured event to the machine holding the focus.
 func (h *Host) forward(j fwdJob) {
 	dest := h.current.Load()
-	if dest == h.self {
+	if dest == h.getSelf() {
 		return
 	}
 	e := j.e
@@ -231,7 +232,7 @@ func (h *Host) forward(j fwdJob) {
 		if !e.KeyDown {
 			flags = protocol.KeyFlagUp
 		}
-		_ = h.send.SendKey(int32(e.VK), flags, h.self, dest)
+		_ = h.send.SendKey(int32(e.VK), flags, h.getSelf(), dest)
 	case input.KindMouseMove:
 		if !j.hasDelta {
 			return
@@ -239,7 +240,7 @@ func (h *Host) forward(j fwdJob) {
 		_ = h.send.SendMouse(protocol.MouseEvent{
 			X: protocol.RelativeDelta(j.dx),
 			Y: protocol.RelativeDelta(j.dy),
-		}, h.self, dest)
+		}, h.getSelf(), dest)
 	case input.KindMouseButton:
 		wm, ok := input.MouseFlagToWM(e.MouseFlag)
 		if !ok {
@@ -248,11 +249,11 @@ func (h *Host) forward(j fwdJob) {
 		_ = h.send.SendMouse(protocol.MouseEvent{
 			X: protocol.RelativeDelta(0), Y: protocol.RelativeDelta(0),
 			Flags: int32(wm),
-		}, h.self, dest)
+		}, h.getSelf(), dest)
 	case input.KindMouseWheel:
 		_ = h.send.SendMouse(protocol.MouseEvent{
 			WheelDelta: int32(e.Wheel), Flags: int32(protocol.WMMouseWheel),
-		}, h.self, dest)
+		}, h.getSelf(), dest)
 	}
 }
 
@@ -265,7 +266,7 @@ func (h *Host) forward(j fwdJob) {
 // compositor clamps exactly) and re-anchor the tracker via SetPosition;
 // backends with true absolute positioning (x11) take the exact warp.
 func (h *Host) OnNextMachine(entryX, entryY int) {
-	h.current.Store(h.self)
+	h.current.Store(h.getSelf())
 	if f, ok := h.backend.(interface{ SetForwarding(bool) }); ok {
 		f.SetForwarding(false)
 	}
