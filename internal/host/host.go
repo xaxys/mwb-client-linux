@@ -232,28 +232,42 @@ func (h *Host) forward(j fwdJob) {
 		if !e.KeyDown {
 			flags = protocol.KeyFlagUp
 		}
-		_ = h.send.SendKey(int32(e.VK), flags, h.getSelf(), dest)
+		h.sendKey(int32(e.VK), flags, dest)
 	case input.KindMouseMove:
 		if !j.hasDelta {
 			return
 		}
-		_ = h.send.SendMouse(protocol.MouseEvent{
-			X: protocol.RelativeDelta(j.dx),
-			Y: protocol.RelativeDelta(j.dy),
-		}, h.getSelf(), dest)
+		h.sendMouse(protocol.MouseEvent{
+			X:     protocol.RelativeDelta(j.dx),
+			Y:     protocol.RelativeDelta(j.dy),
+			Flags: int32(protocol.WMMouseMove),
+		}, dest)
 	case input.KindMouseButton:
 		wm, ok := input.MouseFlagToWM(e.MouseFlag)
 		if !ok {
 			return
 		}
-		_ = h.send.SendMouse(protocol.MouseEvent{
+		h.sendMouse(protocol.MouseEvent{
 			X: protocol.RelativeDelta(0), Y: protocol.RelativeDelta(0),
 			Flags: int32(wm),
-		}, h.getSelf(), dest)
+		}, dest)
 	case input.KindMouseWheel:
-		_ = h.send.SendMouse(protocol.MouseEvent{
+		h.sendMouse(protocol.MouseEvent{
 			WheelDelta: int32(e.Wheel), Flags: int32(protocol.WMMouseWheel),
-		}, h.getSelf(), dest)
+		}, dest)
+	}
+}
+
+// sendKey/sendMouse log the (rare) forward errors for field diagnosis.
+func (h *Host) sendKey(vk, flags int32, dest uint32) {
+	if err := h.send.SendKey(vk, flags, h.getSelf(), dest); err != nil && h.log != nil {
+		h.log.Warnf("host: forward key: %v", err)
+	}
+}
+
+func (h *Host) sendMouse(m protocol.MouseEvent, dest uint32) {
+	if err := h.send.SendMouse(m, h.getSelf(), dest); err != nil && h.log != nil {
+		h.log.Warnf("host: forward mouse: %v", err)
 	}
 }
 

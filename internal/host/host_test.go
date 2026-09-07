@@ -264,6 +264,9 @@ func TestHostSwitchAwayAndBack(t *testing.T) {
 	if !mm.m.IsRelative() {
 		t.Fatalf("mouse %+v not relative", mm.m)
 	}
+	if mm.m.Flags != 0x0200 {
+		t.Fatalf("mouse flags %#x want WM_MOUSEMOVE", uint32(mm.m.Flags))
+	}
 
 	// Button forwarding goes out as WM_* codes, not MOUSEEVENTF.
 	fb.emit(input.Event{Kind: input.KindMouseButton, MouseFlag: input.MouseLeftDown})
