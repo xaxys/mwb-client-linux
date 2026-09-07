@@ -135,6 +135,16 @@ func (s *Server) handlePacket(sc *mwbcrypto.SecureConn, magic uint32, peer strin
 		if h.OnAsk != nil {
 			h.OnAsk(p.Src, p.MachineName, p.GetPostAction())
 		}
+	case protocol.PtHeartbeatExL2:
+		// Generation handshake (2026 rekey parity): peer proved current
+		// gen; confirm with L3 so it stops re-probing.
+		l3 := &protocol.Packet{Type: protocol.PtHeartbeatExL3, ID: s.sender.Next(),
+			Src: s.selfSlot(), Des: protocol.IDAll}
+		if wire, err := l3.Encode(magic); err == nil {
+			_ = sc.WritePacket(wire)
+		}
+	case protocol.PtHeartbeatExL3:
+		// Ack of our L2 path; nothing to do (we always speak current here).
 	}
 	return false
 }
