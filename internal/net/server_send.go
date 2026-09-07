@@ -50,6 +50,14 @@ func (s *Server) broadcast(p *protocol.Packet) error {
 // draw from one source or the peer drops them as duplicates).
 func (s *Server) NextID() int32 { return s.sender.Next() }
 
+// SetMatrix replaces the layout (daemon-configured arrangement wins over
+// adopted discovery).
+func (s *Server) SetMatrix(m protocol.Matrix) {
+	s.mu.Lock()
+	s.matrix = m
+	s.mu.Unlock()
+}
+
 // Layout snapshots our slot and the matrix for daemon wiring.
 func (s *Server) Layout() (self uint32, m protocol.Matrix) {
 	s.mu.Lock()

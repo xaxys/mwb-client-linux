@@ -17,6 +17,8 @@ type fakeBackend struct {
 	hidden     int
 	forwarding bool
 	started    bool
+	posX, posY int
+	hasPos     bool
 }
 
 func (f *fakeBackend) Name() string { return "fake" }
@@ -50,6 +52,11 @@ func (f *fakeBackend) ShowCursor() error {
 }
 func (f *fakeBackend) Bounds() util.Rect { return util.Rect{Right: 1920, Bottom: 1080} }
 func (f *fakeBackend) Close() error      { return nil }
+func (f *fakeBackend) SetPosition(x, y int) {
+	f.mu.Lock()
+	f.posX, f.posY, f.hasPos = x, y, true
+	f.mu.Unlock()
+}
 func (f *fakeBackend) SetForwarding(b bool) {
 	f.mu.Lock()
 	f.forwarding = b
@@ -148,7 +155,7 @@ func TestHostSwitchAwayAndBack(t *testing.T) {
 	fb := &fakeBackend{}
 	fs := newFakeSender()
 	m := protocol.Matrix{Slots: [4]string{"LINUX", "WINDOWS", "", ""}}
-	h := New(fb, fs, util.NewLogger("test"), 1, "LINUX", m)
+	h := New(fb, fs, util.NewLogger("test"), 1, "LINUX", func() protocol.Matrix { return m })
 	stop := make(chan struct{})
 	done := make(chan error, 1)
 	go func() { done <- h.Run(stop) }()
@@ -240,24 +247,28 @@ func TestHostSwitchAwayAndBack(t *testing.T) {
 		t.Fatalf("button flags %#x want WM_LBUTTONDOWN", uint32(bm.m.Flags))
 	}
 
-	// Peer sends us back: show cursor and warp to entry.
+	// Peer sends us back: show cursor, edge-blast, re-anchor tracker.
 	h.OnNextMachine(32767, 1000)
 	waitFor(t, "focus back", func() bool { return h.Current() == 1 })
 	fb.mu.Lock()
 	hidden, fwd = fb.hidden, fb.forwarding
 	ninj = len(fb.injected)
-	var warp input.Event
-	if ninj > 0 {
-		warp = fb.injected[ninj-1]
+	px, py, hasPos := fb.posX, fb.posY, fb.hasPos
+	var blast input.Event
+	for _, e := range fb.injected {
+		if e.Rel {
+			blast = e
+		}
 	}
 	fb.mu.Unlock()
 	if hidden != 0 || fwd {
 		t.Fatalf("hidden=%d fwd=%v want 0/false", hidden, fwd)
 	}
-	if ninj == 0 {
-		t.Fatal("no warp inject on return")
+	// entryY=1000 hits the top edge → one upward blast; entryX is mid.
+	if blast.X != 0 || blast.Y != -20000 {
+		t.Fatalf("blast %+v want (0,-20000)", blast)
 	}
-	if warp.X < 900 || warp.X > 1020 || warp.Y < 0 || warp.Y > 40 {
-		t.Fatalf("warp %+v want ~(959,16)", warp)
+	if !hasPos || px < 900 || px > 1020 || py < 0 || py > 40 {
+		t.Fatalf("tracker (%d,%d,%v) want ~(959,16)", px, py, hasPos)
 	}
 }

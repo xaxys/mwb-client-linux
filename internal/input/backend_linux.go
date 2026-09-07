@@ -392,6 +392,14 @@ func (b *evdevBackend) toDelta(x, y int) (dx, dy int) {
 	return dx, dy
 }
 
+// SetPosition re-anchors the motion tracker without moving the cursor
+// (used after edge-clamp warps whose exact landing is known).
+func (b *evdevBackend) SetPosition(x, y int) {
+	b.posMu.Lock()
+	b.px, b.py, b.hasPos = x, y, true
+	b.posMu.Unlock()
+}
+
 func (b *evdevBackend) trackRel(dx, dy int) {
 	b.posMu.Lock()
 	b.px += dx

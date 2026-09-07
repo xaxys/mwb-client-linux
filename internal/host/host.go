@@ -50,27 +50,41 @@ type Host struct {
 	switcher *input.Switcher
 	fwdCh    chan fwdJob
 
-	mu      sync.Mutex
-	matrix  protocol.Matrix
-	bounds  util.Rect
-	current atomic.Uint32 // machine holding the focus; starts at self
-	px, py  int
-	hasPos  bool
+	mu        sync.Mutex
+	getMatrix func() protocol.Matrix
+	pushed    protocol.Matrix
+	bounds    util.Rect
+	current   atomic.Uint32 // machine holding the focus; starts at self
+	px, py    int
+	hasPos    bool
 }
 
-// New creates a Host. matrix is the current layout, self the local slot ID.
-func New(backend input.Backend, send Sender, log *util.Logger, self uint32, name string, m protocol.Matrix) *Host {
+// New creates a Host. matrix provides the LIVE layout (called on every
+// edge hit — a snapshot goes stale because peers rarely rebroadcast).
+func New(backend input.Backend, send Sender, log *util.Logger, self uint32, name string, matrix func() protocol.Matrix) *Host {
 	h := &Host{backend: backend, send: send, log: log, self: self, name: name,
-		switcher: input.NewSwitcher(), fwdCh: make(chan fwdJob, 64), matrix: m}
+		switcher: input.NewSwitcher(), fwdCh: make(chan fwdJob, 64), getMatrix: matrix}
 	h.current.Store(self)
 	return h
 }
 
-// SetMatrix updates the layout (called when matrix traffic arrives).
+// SetMatrix is kept for push-style updates (inbound 128 bursts); the live
+// provider remains authoritative for edge decisions.
 func (h *Host) SetMatrix(m protocol.Matrix) {
 	h.mu.Lock()
-	h.matrix = m
+	h.pushed = m
 	h.mu.Unlock()
+}
+
+// layout returns the current topology: live provider first (the server
+// folds inbound 128 bursts into it), pushed snapshot as fallback.
+func (h *Host) layout() protocol.Matrix {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.getMatrix != nil {
+		return h.getMatrix()
+	}
+	return h.pushed
 }
 
 // Current reports which machine holds the focus.
@@ -104,7 +118,6 @@ func (h *Host) onCapture(e input.Event) {
 		dx, dy, had := e.X-h.px, e.Y-h.py, h.hasPos
 		h.px, h.py, h.hasPos = e.X, e.Y, true
 		b := h.bounds
-		m := h.matrix
 		cur := h.current.Load()
 		self := h.self
 		h.mu.Unlock()
@@ -116,6 +129,7 @@ func (h *Host) onCapture(e input.Event) {
 		if edge == input.EdgeNone {
 			return
 		}
+		m := h.layout()
 		dest := m.Neighbor(self, toDir(edge))
 		if dest == protocol.IDNone || dest == self {
 			return
@@ -162,10 +176,8 @@ func slotOccupied(m protocol.Matrix, slot uint32) bool {
 // doSwitch runs on the Run goroutine: release modifiers, delegate the
 // switch, hide locally, and start forwarding.
 func (h *Host) doSwitch(r input.SwitchRequest) {
-	h.mu.Lock()
-	m := h.matrix
+	m := h.layout()
 	self := h.self
-	h.mu.Unlock()
 	dest := r.DestID
 	if dest == self || !slotOccupied(m, dest) {
 		// Layout changed mid-flight: recompute once before giving up.
@@ -230,7 +242,13 @@ func (h *Host) forward(j fwdJob) {
 }
 
 // OnNextMachine handles an inbound NextMachine addressed to us: take focus
-// back, show the cursor, and warp to the normalized entry point.
+// back, show the cursor, and land on the entry point.
+//
+// Relative-only backends (evdev) have no absolute positioning and their
+// motion tracker carries an unknown offset, so a blind absolute warp lands
+// off-border. Instead drive each entry-edge axis hard into the edge (the
+// compositor clamps exactly) and re-anchor the tracker via SetPosition;
+// backends with true absolute positioning (x11) take the exact warp.
 func (h *Host) OnNextMachine(entryX, entryY int) {
 	h.current.Store(h.self)
 	if f, ok := h.backend.(interface{ SetForwarding(bool) }); ok {
@@ -239,9 +257,26 @@ func (h *Host) OnNextMachine(entryX, entryY int) {
 	_ = h.backend.ShowCursor()
 	h.mu.Lock()
 	b := h.bounds
-	h.px = util.Denormalize(entryX, b.Left, b.Right)
-	h.py = util.Denormalize(entryY, b.Top, b.Bottom)
-	h.hasPos = true
 	h.mu.Unlock()
-	_ = h.backend.Inject(input.Event{Kind: input.KindMouseMove, X: h.px, Y: h.py})
+	ex := util.Denormalize(entryX, b.Left, b.Right)
+	ey := util.Denormalize(entryY, b.Top, b.Bottom)
+	const far = 20000 // beyond any screen: the edge clamps it exactly
+	if entryX <= 1000 {
+		_ = h.backend.Inject(input.Event{Kind: input.KindMouseMove, X: -far, Rel: true})
+	} else if entryX >= 64535 {
+		_ = h.backend.Inject(input.Event{Kind: input.KindMouseMove, X: far, Rel: true})
+	}
+	if entryY <= 1000 {
+		_ = h.backend.Inject(input.Event{Kind: input.KindMouseMove, X: 0, Y: -far, Rel: true})
+	} else if entryY >= 64535 {
+		_ = h.backend.Inject(input.Event{Kind: input.KindMouseMove, X: 0, Y: far, Rel: true})
+	}
+	if sp, ok := h.backend.(interface{ SetPosition(x, y int) }); ok {
+		sp.SetPosition(ex, ey)
+		return
+	}
+	h.mu.Lock()
+	h.px, h.py, h.hasPos = ex, ey, true
+	h.mu.Unlock()
+	_ = h.backend.Inject(input.Event{Kind: input.KindMouseMove, X: ex, Y: ey})
 }

@@ -28,7 +28,12 @@ func runStack(s *mwbnet.Server, cfg config.Config, selfName string, key string, 
 	defer be.Close()
 	fmt.Printf("input: %s\n", be.Name())
 
-	self, m := s.Layout()
+	self, _ := s.Layout()
+	if m, ok := configMatrix(cfg); ok {
+		s.SetMatrix(m)
+		self, _ = s.Layout()
+		log.Infof("layout: configured %+v", m.Slots)
+	}
 	mgr := clipboard.NewManager(selfName, "", log,
 		func() {
 			if err := s.SendBeat(self, selfName, int32(clipboard.PostOther)); err != nil {
@@ -43,7 +48,10 @@ func runStack(s *mwbnet.Server, cfg config.Config, selfName string, key string, 
 	)
 	byName := reverseHosts(cfg.KnownHosts)
 
-	h := host.New(be, s, log, self, selfName, m)
+	h := host.New(be, s, log, self, selfName, func() protocol.Matrix {
+		_, m := s.Layout()
+		return m
+	})
 	s.Handler = mwbnet.LegHandler{
 		OnMatrix: func(mm protocol.Matrix) { h.SetMatrix(mm) },
 		OnNextMachine: func(x, y int, dest uint32) {
@@ -201,6 +209,22 @@ func protoPinned(cfg config.Config) protocol.ProtocolVersion {
 // forUs mirrors the Receiver Des gate: addressed to us or broadcast.
 func forUs(des, self uint32) bool {
 	return des == self || des == protocol.IDAll
+}
+
+// configMatrix honors an explicit layout from the config file so the
+// arrangement matches the physical desk (otherwise first-peer adoption
+// decides left/right).
+func configMatrix(cfg config.Config) (protocol.Matrix, bool) {
+	var m protocol.Matrix
+	any := false
+	for i, name := range cfg.Matrix {
+		m.Slots[i] = name
+		if name != "" {
+			any = true
+		}
+	}
+	m.Wrap, m.TwoRow = cfg.Wrap, cfg.TwoRow
+	return m, any
 }
 
 // reverseHosts builds name → IP from the known-hosts table.
