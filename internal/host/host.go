@@ -115,9 +115,21 @@ func (h *Host) Run(stop <-chan struct{}) error {
 func (h *Host) onCapture(e input.Event) {
 	if e.Kind == input.KindMouseMove {
 		h.mu.Lock()
-		dx, dy, had := e.X-h.px, e.Y-h.py, h.hasPos
-		h.px, h.py, h.hasPos = e.X, e.Y, true
+		var dx, dy int
+		had := h.hasPos
+		if e.Rel {
+			// Relative backends (evdev) report deltas: advance the
+			// tracker; the raw event coords never reach screen edges.
+			dx, dy = e.X, e.Y
+			h.px += dx
+			h.py += dy
+		} else {
+			dx, dy = e.X-h.px, e.Y-h.py
+			h.px, h.py = e.X, e.Y
+		}
+		h.hasPos = true
 		b := h.bounds
+		cx, cy := h.px, h.py
 		cur := h.current.Load()
 		self := h.self
 		h.mu.Unlock()
@@ -125,7 +137,7 @@ func (h *Host) onCapture(e input.Event) {
 			h.enqueue(fwdJob{e: e, dx: dx, dy: dy, hasDelta: had})
 			return
 		}
-		edge := input.DetectEdge(e.X, e.Y, b, protocol.SkipPixels)
+		edge := input.DetectEdge(cx, cy, b, protocol.SkipPixels)
 		if edge == input.EdgeNone {
 			return
 		}
@@ -134,7 +146,7 @@ func (h *Host) onCapture(e input.Event) {
 		if dest == protocol.IDNone || dest == self {
 			return
 		}
-		ex, ey := input.EntryForJump(e.X, e.Y, b, edge, protocol.JumpPixels)
+		ex, ey := input.EntryForJump(cx, cy, b, edge, protocol.JumpPixels)
 		h.switcher.RequestSwitch(input.SwitchRequest{Edge: edge, EntryX: ex, EntryY: ey, DestID: dest})
 		return
 	}
@@ -188,6 +200,9 @@ func (h *Host) doSwitch(r input.SwitchRequest) {
 	}
 	for _, vk := range modifierVKs {
 		_ = h.send.SendKey(vk, protocol.KeyFlagUp, self, h.current.Load())
+	}
+	if h.log != nil {
+		h.log.Infof("switch: edge=%d dest=%d entry=(%d,%d)", r.Edge, dest, r.EntryX, r.EntryY)
 	}
 	if err := h.send.SendNextMachine(self, dest, r.EntryX, r.EntryY); err != nil {
 		if h.log != nil {

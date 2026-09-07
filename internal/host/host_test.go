@@ -151,6 +151,38 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Fatalf("timeout waiting for %s", what)
 }
 
+func TestHostRelativeEdge(t *testing.T) {
+	fb := &fakeBackend{}
+	fs := newFakeSender()
+	m := protocol.Matrix{Slots: [4]string{"LINUX", "WINDOWS", "", ""}}
+	h := New(fb, fs, util.NewLogger("test"), 1, "LINUX", func() protocol.Matrix { return m })
+	stop := make(chan struct{})
+	done := make(chan error, 1)
+	go func() { done <- h.Run(stop) }()
+	defer func() { close(stop); <-done }()
+
+	waitFor(t, "capture started", func() bool {
+		fb.mu.Lock()
+		defer fb.mu.Unlock()
+		return fb.started
+	})
+	// Relative deltas accumulate in the tracker until the edge hits.
+	for i := 0; i < 5; i++ {
+		fb.emit(input.Event{Kind: input.KindMouseMove, X: 500, Y: 0, Rel: true})
+	}
+	waitFor(t, "relative nextmachine", func() bool {
+		fs.mu.Lock()
+		defer fs.mu.Unlock()
+		return len(fs.nexts) > 0
+	})
+	fs.mu.Lock()
+	nm := fs.nexts[0]
+	fs.mu.Unlock()
+	if nm.src != 1 || nm.dest != 2 || nm.entryX != 0 {
+		t.Fatalf("nextmachine %+v", nm)
+	}
+}
+
 func TestHostSwitchAwayAndBack(t *testing.T) {
 	fb := &fakeBackend{}
 	fs := newFakeSender()
