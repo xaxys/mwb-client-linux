@@ -78,25 +78,41 @@ func DetectEdge(x, y int, bounds util.Rect, skip int) Edge {
 }
 
 // EntryForJump computes the 0..65535 normalized entry coord for a horizontal
-// or vertical jump, clamping the crossed axis to JUMP_PIXELS=2 re-entry.
+// or vertical jump. The crossed axis lands JUMP_PIXELS inside the edge
+// (normalized against the local width, mirroring macOS which approximates
+// with local bounds): landing exactly on 0/65535 would retrigger the peer
+// SKIP_PIXELS=1 edge detector and ping-pong the switch forever.
 func EntryForJump(x, y int, from util.Rect, edge Edge, jump int) (entryX, entryY int) {
+	if jump < 1 {
+		jump = 1
+	}
+	jumpNorm := func(span int) int {
+		if span <= 0 {
+			return 2
+		}
+		if j := jump * 65535 / span; j > 2 {
+			return j
+		}
+		return 2
+	}
 	switch edge {
 	case EdgeRight, EdgeLeft:
 		entryY = util.Normalize(y, from.Top, from.Bottom)
+		jx := jumpNorm(from.Width())
 		if edge == EdgeRight {
-			entryX = 0
+			entryX = jx
 		} else {
-			entryX = 65535
+			entryX = 65535 - jx
 		}
 	case EdgeTop, EdgeBottom:
 		entryX = util.Normalize(x, from.Left, from.Right)
+		jy := jumpNorm(from.Height())
 		if edge == EdgeBottom {
-			entryY = 0
+			entryY = jy
 		} else {
-			entryY = 65535
+			entryY = 65535 - jy
 		}
 	}
-	_ = jump
 	return entryX, entryY
 }
 

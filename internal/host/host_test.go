@@ -178,7 +178,7 @@ func TestHostRelativeEdge(t *testing.T) {
 	fs.mu.Lock()
 	nm := fs.nexts[0]
 	fs.mu.Unlock()
-	if nm.src != 1 || nm.dest != 2 || nm.entryX != 0 {
+	if nm.src != 1 || nm.dest != 2 || nm.entryX != 68 {
 		t.Fatalf("nextmachine %+v", nm)
 	}
 }
@@ -222,8 +222,8 @@ func TestHostClampNoPhantom(t *testing.T) {
 	fs.mu.Lock()
 	nm := fs.nexts[0]
 	fs.mu.Unlock()
-	if nm.dest != 2 || nm.entryX != 0 {
-		t.Fatalf("nextmachine %+v want dest2 entryX0", nm)
+	if nm.dest != 2 || nm.entryX != 68 {
+		t.Fatalf("nextmachine %+v want dest2 entryX68", nm)
 	}
 }
 
@@ -257,8 +257,8 @@ func TestHostSwitchAwayAndBack(t *testing.T) {
 	if nm.src != 1 || nm.dest != 2 {
 		t.Fatalf("nextmachine %+v want src1 des2", nm)
 	}
-	if nm.entryX != 0 {
-		t.Fatalf("entryX=%d want 0", nm.entryX)
+	if nm.entryX != 68 {
+		t.Fatalf("entryX=%d want 68 (2px inset, never 0)", nm.entryX)
 	}
 	if nm.entryY < 32000 || nm.entryY > 33500 {
 		t.Fatalf("entryY=%d want ~32767", nm.entryY)

@@ -45,10 +45,16 @@ func TestWMMapping(t *testing.T) {
 func TestEntryNormalization(t *testing.T) {
 	from := util.Rect{Left: 0, Top: 0, Right: 1920, Bottom: 1080}
 	ex, ey := input.EntryForJump(1919, 540, from, input.EdgeRight, 2)
-	if ex != 0 {
-		t.Fatalf("entryX %d", ex)
+	// 2px-inset entry (2*65535/1920=68): never exactly 0/65535, or the
+	// peer SKIP=1 detector refires and ping-pongs the switch.
+	if ex != 68 {
+		t.Fatalf("entryX %d want 68", ex)
 	}
 	if ey < 32700 || ey > 32800 {
 		t.Fatalf("entryY %d want ~32767", ey)
+	}
+	lx, _ := input.EntryForJump(0, 540, from, input.EdgeLeft, 2)
+	if lx != 65535-68 {
+		t.Fatalf("left entryX %d want %d", lx, 65535-68)
 	}
 }
