@@ -42,6 +42,7 @@ func (s *Server) broadcast(p *protocol.Packet) error {
 	if sent == 0 {
 		return lastErr
 	}
+	tracePacket("tx", p)
 	return nil
 }
 
